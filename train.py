@@ -42,6 +42,7 @@ def train(
         batch_size=batch_size,
         lr=lr,
         generate_submission="TRAINML_DATA_PATH" in os.environ,
+        precision=16 if os.environ.get("ENABLE_MIXED_PRECISION", False) else 32,
     )], local_scheduler=True)
 
 
