@@ -1,5 +1,8 @@
+import os
+
 import click
 import luigi
+import wandb
 
 from ml_challenge.task.training import DeepARTraining
 
@@ -23,6 +26,8 @@ def train(
         batch_size: int,
         lr: float,
     ):
+    if "WANDB_KEY" in os.environ:
+        wandb.login(key=os.environ["WANDB_KEY"])
     luigi.build([DeepARTraining(
         use_gpu=True,
         validate_with_non_testing_skus=True,

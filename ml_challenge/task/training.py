@@ -185,6 +185,8 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
     def run(self):
         os.makedirs(self.output().path, exist_ok=True)
 
+        self._save_params()
+
         pl.seed_everything(self.seed, workers=True)
 
         shutil.copy(
@@ -199,7 +201,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
             name=self.task_id,
             save_dir=self.output().path,
             project="ml-challenge",
-            log_model=True,
+            log_model=False,
             monitor=monitor,
             mode="min",
         )
@@ -255,6 +257,9 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
         )
 
         self._serialize(train_output.predictor)
+        predictor_artifact = wandb.Artifact(name=f"artifact-{wandb_logger.experiment.id}", type="model")
+        predictor_artifact.add_dir(os.path.join(self.output().path, "predictor"))
+        wandb_logger.experiment.log_artifact(predictor_artifact)
 
         if self.generate_submission:
             generate_submission(
