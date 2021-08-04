@@ -5,7 +5,7 @@ import pickle
 import shutil
 from functools import cached_property
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Optional
 from glob import glob
 
 import luigi
@@ -17,7 +17,6 @@ from gluonts.dataset.common import Dataset
 from gluonts.time_feature import get_lags_for_frequency
 from gluonts.torch.model.predictor import PyTorchPredictor
 from pts.modules import NegativeBinomialOutput
-from pytorch_lightning.loggers import WandbLogger
 from sklearn.preprocessing import OrdinalEncoder
 
 from ml_challenge.dataset import (
@@ -26,7 +25,7 @@ from ml_challenge.dataset import (
     FilterTimeSeriesTransformation,
     TruncateTargetTransformation,
 )
-from ml_challenge.gluonts import CustomDeepAREstimator, CustomNegativeBinomialOutput
+from ml_challenge.gluonts import CustomDeepAREstimator
 from ml_challenge.submission import generate_submission
 from ml_challenge.task.data_preparation import PrepareGluonTimeSeriesDatasets
 from ml_challenge.utils import get_sku_from_data_entry_path
@@ -262,9 +261,13 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
         wandb_logger.experiment.log_artifact(predictor_artifact)
 
         if self.generate_submission:
-            generate_submission(
+            submission_path = generate_submission(
                 train_output.predictor,
                 self.test_dataset,
                 self.test_df,
                 self.output().path,
             )
+
+            submission_artifact = wandb.Artifact(name=f"submission-{wandb_logger.experiment.id}", type="submission")
+            submission_artifact.add_file(submission_path)
+            wandb_logger.experiment.log_artifact(submission_artifact)

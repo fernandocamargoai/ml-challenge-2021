@@ -41,6 +41,7 @@ def train(
         num_layers=num_layers,
         batch_size=batch_size,
         lr=lr,
+        generate_submission="TRAINML_DATA_PATH" in os.environ,
     )], local_scheduler=True)
 
 

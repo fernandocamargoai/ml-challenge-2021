@@ -1,7 +1,5 @@
 import functools
 import os
-import multiprocessing
-import multiprocessing.dummy
 import pickle
 from typing import List, Tuple, Dict
 import warnings
@@ -119,9 +117,10 @@ class PrepareGluonTimeSeriesDatasets(luigi.Task):
         )
 
     def output(self):
-        return luigi.LocalTarget(
-            os.path.join("output", self.__class__.__name__, self.task_id)
-        )
+        task_path = os.path.join("output", self.__class__.__name__, self.task_id)
+        if "TRAINML_DATA_PATH" in os.environ:
+            task_path = os.path.join(os.environ["TRAINML_DATA_PATH"], task_path)
+        return luigi.LocalTarget(task_path)
 
     def run(self):
         os.makedirs(self.output().path)
