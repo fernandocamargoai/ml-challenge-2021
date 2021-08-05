@@ -10,6 +10,7 @@ from ml_challenge.task.training import DeepARTraining
 @click.command()
 @click.option("--gradient_clip_val", type=float)
 @click.option("--context_length", type=int)
+@click.option("--lags_seq_ub", type=int)
 @click.option("--weight_decay", type=float)
 @click.option("--dropout_rate", type=float)
 @click.option("--hidden_size", type=int)
@@ -19,6 +20,7 @@ from ml_challenge.task.training import DeepARTraining
 def train(
     gradient_clip_val: float,
     context_length: int,
+    lags_seq_ub: int,
     weight_decay: float,
     dropout_rate: float,
     hidden_size: int,
@@ -35,6 +37,7 @@ def train(
                 embedding_dimension=[2, 3, 2, 2, 2, 8, 16, 16],
                 gradient_clip_val=gradient_clip_val,
                 context_length=context_length,
+                lags_seq_ub=lags_seq_ub,
                 weight_decay=weight_decay,
                 dropout_rate=dropout_rate,
                 hidden_size=hidden_size,
