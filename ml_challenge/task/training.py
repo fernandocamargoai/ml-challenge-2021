@@ -54,7 +54,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
     validate_with_non_testing_skus: bool = luigi.BoolParameter(default=False)
 
     context_length: int = luigi.IntParameter(default=30)
-    lag_seq_ub: int = luigi.IntParameter(default=60)
+    lags_seq_ub: int = luigi.IntParameter(default=60)
     num_layers: int = luigi.IntParameter(default=2)
     hidden_size: int = luigi.IntParameter(default=40)
     dropout_rate: float = luigi.FloatParameter(default=0.1)
@@ -227,7 +227,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
             embedding_dimension=self.embedding_dimension,
             distr_output=NegativeBinomialOutput(),
             scaling=True,
-            lags_seq=get_lags_for_frequency("D", lag_ub=self.lag_seq_ub),
+            lags_seq=get_lags_for_frequency("D", lag_ub=self.lags_seq_ub),
             num_parallel_samples=self.num_parallel_samples,
             batch_size=self.batch_size,
             lr=self.lr,
