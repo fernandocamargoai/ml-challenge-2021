@@ -31,7 +31,7 @@ def train(
             DeepARTraining(
                 use_gpu=True,
                 validate_with_non_testing_skus=True,
-                num_workers=3,
+                num_workers=max(os.cpu_count() - 1, 1),
                 embedding_dimension=[2, 3, 2, 2, 2, 8, 16, 16],
                 gradient_clip_val=gradient_clip_val,
                 context_length=context_length,
@@ -41,7 +41,7 @@ def train(
                 num_layers=num_layers,
                 batch_size=batch_size,
                 lr=lr,
-                generate_submission="TRAINML_DATA_PATH" in os.environ,
+                generate_submission=os.environ.get("GENERATE_SUBMISSION", False),
                 precision=16
                 if os.environ.get("ENABLE_MIXED_PRECISION", "False") == "True"
                 else 32,
