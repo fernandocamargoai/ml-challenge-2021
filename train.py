@@ -2,6 +2,7 @@ import os
 
 import click
 import luigi
+from luigi.execution_summary import LuigiRunResult, LuigiStatusCode
 
 from ml_challenge.task.training import DeepARTraining
 
@@ -25,7 +26,7 @@ def train(
     batch_size: int,
     lr: float,
 ):
-    luigi.build(
+    result: LuigiRunResult = luigi.build(
         [
             DeepARTraining(
                 use_gpu=True,
@@ -46,8 +47,11 @@ def train(
                 else 32,
             )
         ],
+        detailed_summary=True,
         local_scheduler=True,
     )
+    if not result.status == LuigiStatusCode.SUCCESS:
+        raise RuntimeError(result)
 
 
 if __name__ == "__main__":
