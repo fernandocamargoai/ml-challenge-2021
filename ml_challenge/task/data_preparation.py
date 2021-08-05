@@ -117,10 +117,10 @@ class PrepareGluonTimeSeriesDatasets(luigi.Task):
         )
 
     def output(self):
-        task_path = os.path.join("output", self.__class__.__name__, self.task_id)
         if "TRAINML_DATA_PATH" in os.environ:
-            task_path = os.path.join(os.environ["TRAINML_DATA_PATH"], task_path)
-        return luigi.LocalTarget(task_path)
+            return luigi.LocalTarget(os.path.join(os.environ["TRAINML_DATA_PATH"], self.task_id))
+        else:
+            return luigi.LocalTarget(os.path.join("output", self.__class__.__name__, self.task_id))
 
     def run(self):
         os.makedirs(self.output().path)
