@@ -119,8 +119,8 @@ class PrepareGluonTimeSeriesDatasets(luigi.Task):
         )
 
     def output(self):
-        if "TRAINML_DATA_PATH" in os.environ:
-            return luigi.LocalTarget(os.path.join(os.environ["TRAINML_DATA_PATH"], self.task_id))
+        if "DATA_PATH" in os.environ:
+            return luigi.LocalTarget(os.path.join(os.environ["DATA_PATH"], self.task_id))
         else:
             return luigi.LocalTarget(os.path.join("output", self.__class__.__name__, self.task_id))
 
