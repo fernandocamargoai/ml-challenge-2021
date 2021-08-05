@@ -12,6 +12,7 @@ from sklearn.preprocessing import OrdinalEncoder, scale
 from tqdm import tqdm
 
 from ml_challenge.holidays import create_holidays_df
+from ml_challenge.path import get_assets_path
 from ml_challenge.utils import save_json_gzip
 
 
@@ -111,9 +112,10 @@ class PrepareGluonTimeSeriesDatasets(luigi.Task):
     test_steps: int = luigi.IntParameter(default=30)
 
     def input(self) -> Tuple[luigi.LocalTarget, luigi.LocalTarget]:
+        assets_path = get_assets_path()
         return (
-            luigi.LocalTarget(os.path.join("assets", "train_data.parquet")),
-            luigi.LocalTarget(os.path.join("assets", "items_static_metadata_full.jl")),
+            luigi.LocalTarget(os.path.join(assets_path, "train_data.parquet")),
+            luigi.LocalTarget(os.path.join(assets_path, "items_static_metadata_full.jl")),
         )
 
     def output(self):

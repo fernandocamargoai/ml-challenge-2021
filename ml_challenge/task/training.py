@@ -26,6 +26,7 @@ from ml_challenge.dataset import (
     TruncateTargetTransformation,
 )
 from ml_challenge.gluonts import CustomDeepAREstimator
+from ml_challenge.path import get_assets_path
 from ml_challenge.submission import generate_submission
 from ml_challenge.task.data_preparation import PrepareGluonTimeSeriesDatasets
 from ml_challenge.utils import get_sku_from_data_entry_path
@@ -122,7 +123,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
 
     @cached_property
     def test_df(self) -> pd.DataFrame:
-        return pd.read_csv(os.path.join("assets", "test_data.csv"))
+        return pd.read_csv(os.path.join(get_assets_path(), "test_data.csv"))
 
     @cached_property
     def train_dataset(self) -> Dataset:
