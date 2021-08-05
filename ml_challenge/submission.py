@@ -54,12 +54,11 @@ def generate_submission(
     if quantiles is None:
         quantiles = [str(q) for q in np.arange(0.00, 1.01, 0.01)]
 
-    # predictor.batch_size = 2048
+    predictor.batch_size = 512
     with Pool(os.cpu_count()) as pool:
         with LookaheadGenerator(predictor.predict(dataset)) as forecasts:
             all_probas = list(tqdm(
                 pool.imap(
-                # map(
                     functools.partial(
                         _pool_calculate_out_of_stock_probas, quantiles=quantiles
                     ),
@@ -67,12 +66,6 @@ def generate_submission(
                 ),
                 total=len(df),
             ))
-    # all_probas = [
-    #     calculate_out_of_stock_probas(forecast, stock, quantiles)
-    #     for forecast, stock in tqdm(
-    #         zip(predictor.predict(dataset), df["target_stock"]), total=len(df)
-    #     )
-    # ]
     all_probas = [
         probas if sum(probas) > 0 else ([0.0] * (len(probas) - 1) + [0.0001])
         for probas in all_probas
@@ -87,4 +80,3 @@ def generate_submission(
                 )
             )
     return submission_path
-

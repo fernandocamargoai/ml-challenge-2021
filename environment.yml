@@ -10,7 +10,6 @@ dependencies:
 - plotly=5.1
 - scipy=1.7
 - numpy=1.21
-- seaborn=0.11
 - scikit-learn=0.24
 - holidays=0.11
 - convertdate=2.3
@@ -20,7 +19,6 @@ dependencies:
 - jupyterlab=3.0
 - ipywidgets=7.6
 - psutil=5.8
-- pydantic=1.8
 - cudatoolkit=11.1
 - pytorch=1.9
 - pytorch-lightning=1.4
