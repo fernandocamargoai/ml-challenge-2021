@@ -145,7 +145,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
     @cached_property
     def val_dataset(self) -> Optional[Dataset]:
         if self.validate_with_non_testing_skus:
-            paths = glob(os.path.join(self.input().path, "*.json.gz"))[:1000] # TODO Remove [:1000]
+            paths = glob(os.path.join(self.input().path, "*.json.gz"))
             testing_skus = set(self.test_df["sku"])
             paths = [
                 path
