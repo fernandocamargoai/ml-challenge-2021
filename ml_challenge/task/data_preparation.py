@@ -128,7 +128,10 @@ class PrepareGluonTimeSeriesDatasets(luigi.Task):
 
     def output(self):
         if "DATA_PATH" in os.environ:
-            return luigi.LocalTarget(os.path.join(os.environ["DATA_PATH"], self.task_id))
+            path = os.path.join(os.environ["DATA_PATH"], self.task_id)
+            if "TRAINML_DATA_PATH" in os.environ:
+                path = path.lower()  # trainml.ai lowercases the dataset
+            return luigi.LocalTarget(path)
         else:
             return luigi.LocalTarget(os.path.join("output", self.__class__.__name__, self.task_id))
 
