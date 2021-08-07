@@ -28,6 +28,8 @@ def _save_dataset_item(
     test_steps: int,
     global_current_price_mean: float,
     global_current_price_std: float,
+    currency_current_price_mean: Dict[str, float],
+    currency_current_price_std: Dict[str, float],
     output_dir: str,
 ):
     sku, df = group
@@ -45,6 +47,12 @@ def _save_dataset_item(
             df["global_relative_price"] = (
                 df["current_price"] - global_current_price_mean
             ) / global_current_price_std
+
+        if "currency_relative_price" in real_variables:
+            currency = df.iloc[0]["currency"]
+            df["currency_relative_price"] = (
+                df["current_price"] - currency_current_price_mean[currency]
+            ) / currency_current_price_std[currency]
 
         if "current_price" in real_variables:
             with warnings.catch_warnings():
@@ -107,7 +115,7 @@ class PrepareGluonTimeSeriesDatasets(luigi.Task):
         ]
     )
     real_variables: List[str] = luigi.ListParameter(
-        default=["global_relative_price", "current_price", "minutes_active"]
+        default=["currency_relative_price", "current_price", "minutes_active"]
     )
     test_steps: int = luigi.IntParameter(default=30)
 
@@ -160,6 +168,9 @@ class PrepareGluonTimeSeriesDatasets(luigi.Task):
         global_current_price_mean = df["current_price"].mean()
         global_current_price_std = df["current_price"].std()
 
+        currency_current_price_mean: Dict[str, float] = df.groupby("currency")["current_price"].mean().to_dict()
+        currency_current_price_std: Dict[str, float] = df.groupby("currency")["current_price"].std().to_dict()
+
         list(
             tqdm(
                 map(
@@ -171,6 +182,8 @@ class PrepareGluonTimeSeriesDatasets(luigi.Task):
                         test_steps=self.test_steps,
                         global_current_price_mean=global_current_price_mean,
                         global_current_price_std=global_current_price_std,
+                        currency_current_price_mean=currency_current_price_mean,
+                        currency_current_price_std=currency_current_price_std,
                         output_dir=self.output().path,
                     ),
                     df.groupby("sku"),
