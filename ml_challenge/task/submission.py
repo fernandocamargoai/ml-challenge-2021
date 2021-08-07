@@ -10,7 +10,7 @@ from ml_challenge.submission import (
     generate_submission_with_quantiles,
     generate_submission_with_tweedie,
     generate_submission_with_normal,
-    generate_submission_with_ecdf,
+    generate_submission_with_ecdf, generate_submission_with_beta,
 )
 from ml_challenge.task.training import DeepARTraining
 
@@ -19,7 +19,7 @@ class GenerateSubmission(luigi.Task):
     task_path: str = luigi.Parameter()
 
     method: str = luigi.ChoiceParameter(
-        choices=["with_quantiles", "with_tweedie", "with_normal", "with_ecdf"]
+        choices=["with_quantiles", "with_tweedie", "with_normal", "with_ecdf", "with_beta"]
     )
 
     quantile_step: float = luigi.FloatParameter(default=0.01)
@@ -72,8 +72,17 @@ class GenerateSubmission(luigi.Task):
                 self.training.test_df,
                 self.training.output().path,
             )
-        else:
+        elif self.method == "with_ecdf":
             generate_submission_with_ecdf(
+                predictor,
+                self.num_samples,
+                self.seed,
+                self.training.test_dataset,
+                self.training.test_df,
+                self.training.output().path,
+            )
+        elif self.method == "with_beta":
+            generate_submission_with_beta(
                 predictor,
                 self.num_samples,
                 self.seed,

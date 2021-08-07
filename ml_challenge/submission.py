@@ -12,7 +12,7 @@ from gluonts.dataset.common import Dataset
 from gluonts.model.forecast import SampleForecast
 
 from gluonts.torch.model.predictor import PyTorchPredictor
-from scipy.stats import norm
+from scipy.stats import norm, beta
 from statsmodels.distributions import ECDF
 from tqdm import tqdm
 
@@ -135,7 +135,7 @@ def apply_tweedie(
 ) -> List[float]:
     distro = tweedie.tweedie(p=power, mu=out_of_stock_days, phi=phi)
 
-    cdf = [distro.cdf(i + 1) for i in range(1, total_days + 1)]
+    cdf = [distro.cdf(i) for i in range(1, total_days + 1)]
     return cdf_to_probas(cdf)
 
 
@@ -192,7 +192,7 @@ def generate_submission_with_tweedie(
 def apply_normal(days_mean: float, days_std: float, total_days: int = 30):
     distro = norm(days_mean, days_std)
 
-    cdf = [distro.cdf(i + 1) for i in range(1, total_days + 1)]
+    cdf = [distro.cdf(i) for i in range(1, total_days + 1)]
     return cdf_to_probas(cdf)
 
 
@@ -230,7 +230,7 @@ def generate_submission_with_normal(
 
 def apply_ecdf(sample_days: List[int], total_days: int = 30):
     ecdf = ECDF(sample_days)
-    cdf = [ecdf(i + 1) for i in range(1, total_days + 1)]
+    cdf = [ecdf(i) for i in range(1, total_days + 1)]
     return cdf_to_probas(cdf)
 
 
@@ -263,4 +263,48 @@ def generate_submission_with_ecdf(
         task_path,
         forecast_transform_fn,
         "with_ecdf",
+    )
+
+
+def apply_beta(days_mean: float, days_std: float, total_days: int = 30):
+    mu = days_mean / total_days
+    var = (days_std ** 2) / total_days
+    a = ((1 - mu) / var - 1 / mu) * mu ** 2
+    b = a * (1 / mu - 1)
+
+    distro = beta(a, b)
+
+    cdf = [distro.cdf(i / total_days) for i in range(1, total_days + 1)]
+    return cdf_to_probas(cdf)
+
+
+def forecast_with_beta(
+    forecast: SampleForecast, stock: int, total_days: int = 30
+) -> List[float]:
+    sample_days = calculate_out_of_stock_days_from_samples(forecast, stock)
+    return apply_normal(sample_days.mean(), sample_days.std(), total_days=total_days)
+
+
+def generate_submission_with_beta(
+    predictor: PyTorchPredictor,
+    num_samples: int,
+    seed: int,
+    dataset: Dataset,
+    df: pd.DataFrame,
+    task_path: str,
+    total_days: int = 30,
+) -> str:
+    forecast_transform_fn = functools.partial(
+        forecast_with_beta, total_days=total_days,
+    )
+
+    return generate_submission(
+        predictor,
+        num_samples,
+        seed,
+        dataset,
+        df,
+        task_path,
+        forecast_transform_fn,
+        "with_beta",
     )

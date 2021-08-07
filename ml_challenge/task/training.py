@@ -49,7 +49,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
         ]
     )
     real_variables: List[str] = luigi.ListParameter(
-        default=["global_relative_price", "current_price", "minutes_active"]
+        default=["currency_relative_price", "current_price", "minutes_active"]
     )
     test_steps: int = luigi.IntParameter(default=30)
     validate_with_non_testing_skus: bool = luigi.BoolParameter(default=False)
