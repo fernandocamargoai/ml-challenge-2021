@@ -1,4 +1,5 @@
 import os
+import ast
 
 import click
 import luigi
@@ -8,6 +9,7 @@ from ml_challenge.task.training import DeepARTraining
 
 
 @click.command()
+@click.option("--embedding_dimension", type=str)
 @click.option("--gradient_clip_val", type=float)
 @click.option("--context_length", type=int)
 @click.option("--lags_seq_ub", type=int)
@@ -18,6 +20,7 @@ from ml_challenge.task.training import DeepARTraining
 @click.option("--batch_size", type=int)
 @click.option("--lr", type=float)
 def train(
+    embedding_dimension: str,
     gradient_clip_val: float,
     context_length: int,
     lags_seq_ub: int,
@@ -33,8 +36,9 @@ def train(
             DeepARTraining(
                 use_gpu=True,
                 validate_with_non_testing_skus=True,
-                num_workers=max(os.cpu_count() - 1, 1),
-                embedding_dimension=[2, 3, 2, 2, 2, 8, 16, 16],
+                num_workers=0,
+                cache_dataset=True,
+                embedding_dimension=ast.literal_eval(embedding_dimension),
                 gradient_clip_val=gradient_clip_val,
                 context_length=context_length,
                 lags_seq_ub=lags_seq_ub,
