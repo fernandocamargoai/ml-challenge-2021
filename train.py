@@ -44,7 +44,6 @@ def train(
                 num_layers=num_layers,
                 batch_size=batch_size,
                 lr=lr,
-                generate_submission=os.environ.get("GENERATE_SUBMISSION", False),
                 precision=16
                 if os.environ.get("ENABLE_MIXED_PRECISION", "False") == "True"
                 else 32,

@@ -27,7 +27,7 @@ from ml_challenge.dataset import (
 )
 from ml_challenge.gluonts import CustomDeepAREstimator
 from ml_challenge.path import get_assets_path
-from ml_challenge.submission import generate_submission
+from ml_challenge.submission import generate_submission_with_quantiles
 from ml_challenge.task.data_preparation import PrepareGluonTimeSeriesDatasets
 from ml_challenge.utils import get_sku_from_data_entry_path
 from ml_challenge.wandb import WandbWithBestMetricLogger
@@ -78,8 +78,6 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
     cache_dataset: bool = luigi.BoolParameter(default=False)
     preload_dataset: bool = luigi.BoolParameter(default=False)
     check_data: bool = luigi.BoolParameter(default=False)
-
-    generate_submission: bool = luigi.BoolParameter(default=False)
 
     seed: int = luigi.IntParameter(default=42)
     use_gpu: bool = luigi.BoolParameter(default=False)
@@ -261,15 +259,3 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
         predictor_artifact = wandb.Artifact(name=f"artifact-{wandb_logger.experiment.id}", type="model")
         predictor_artifact.add_dir(os.path.join(self.output().path, "predictor"))
         wandb_logger.experiment.log_artifact(predictor_artifact)
-
-        if self.generate_submission:
-            submission_path = generate_submission(
-                train_output.predictor,
-                self.test_dataset,
-                self.test_df,
-                self.output().path,
-            )
-
-            submission_artifact = wandb.Artifact(name=f"submission-{wandb_logger.experiment.id}", type="submission")
-            submission_artifact.add_file(submission_path)
-            wandb_logger.experiment.log_artifact(submission_artifact)
