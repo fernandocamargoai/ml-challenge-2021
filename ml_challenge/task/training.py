@@ -92,8 +92,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
     context_length: int = luigi.IntParameter(default=30)
     lags_seq_ub: int = luigi.IntParameter(default=60)
     time_features: List[str] = luigi.ListParameter(
-        # default=["day_of_week", "day_of_month", "day_of_year"]
-        default=["day_of_week_sin", "day_of_week_cos", "day_of_month_sin", "day_of_month_cos", "day_of_year_sin", "day_of_year_cos", "week_of_year_sin", "week_of_year_cos"]
+        default=["day_of_week", "day_of_month", "day_of_year"]
     )
     num_layers: int = luigi.IntParameter(default=2)
     hidden_size: int = luigi.IntParameter(default=40)
