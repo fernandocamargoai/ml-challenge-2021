@@ -9,6 +9,7 @@ from ml_challenge.task.training import DeepARTraining
 
 
 @click.command()
+@click.option("--distribution", type=str)
 @click.option("--embedding_dimension", type=str)
 @click.option("--gradient_clip_val", type=float)
 @click.option("--context_length", type=int)
@@ -20,6 +21,7 @@ from ml_challenge.task.training import DeepARTraining
 @click.option("--batch_size", type=int)
 @click.option("--lr", type=float)
 def train(
+    distribution: str,
     embedding_dimension: str,
     gradient_clip_val: float,
     context_length: int,
@@ -38,6 +40,7 @@ def train(
                 validate_with_non_testing_skus=True,
                 num_workers=0,
                 cache_dataset=True,
+                distribution=distribution,
                 embedding_dimension=ast.literal_eval(embedding_dimension),
                 gradient_clip_val=gradient_clip_val,
                 context_length=context_length,

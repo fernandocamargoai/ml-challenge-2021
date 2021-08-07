@@ -1,15 +1,26 @@
+import math
 from typing import Optional, List, Dict, Any
 
+import numpy as np
+import pandas as pd
 import torch
-from gluonts.time_feature import TimeFeature
+from gluonts.time_feature import (
+    TimeFeature,
+    DayOfWeekIndex,
+    DayOfMonthIndex,
+    DayOfYearIndex,
+    WeekOfYearIndex,
+)
 from gluonts.torch.model.deepar import (
     DeepAREstimator,
     DeepARLightningModule,
     DeepARModel,
 )
-from gluonts.torch.modules.distribution_output import DistributionOutput, StudentTOutput, NegativeBinomialOutput
+from gluonts.torch.modules.distribution_output import (
+    DistributionOutput,
+    StudentTOutput,
+)
 from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
-from torch.distributions import Distribution, TransformedDistribution, AffineTransform
 
 
 class CustomDeepAREstimator(DeepAREstimator):
@@ -89,38 +100,53 @@ class CustomDeepAREstimator(DeepAREstimator):
         )
 
 
-class CustomNegativeBinomialOutput(NegativeBinomialOutput):
-    def distribution(
-        self,
-        distr_args,
-        loc: Optional[torch.Tensor] = None,
-        scale: Optional[torch.Tensor] = None,
-    ) -> Distribution:
-        r"""
-        Construct the associated distribution, given the collection of
-        constructor arguments and, optionally, a scale tensor.
+class DayOfWeekSin(DayOfWeekIndex):
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        day_of_week = super().__call__(index)
+        return np.sin(day_of_week * (2.0 * math.pi / 6))
 
-        Parameters
-        ----------
-        distr_args
-            Constructor arguments for the underlying Distribution type.
-        loc
-            Optional tensor, of the same shape as the
-            batch_shape+event_shape of the resulting distribution.
-        scale
-            Optional tensor, of the same shape as the
-            batch_shape+event_shape of the resulting distribution.
-        """
-        if loc is None and scale is None:
-            return self.distr_cls(distr_args[0], logits=distr_args[1])
-        else:
-            distr = self.distr_cls(distr_args[0], logits=distr_args[1])
-            return TransformedDistribution(
-                distr,
-                [
-                    AffineTransform(
-                        loc=0.0 if loc is None else loc,
-                        scale=1.0 if scale is None else scale,
-                    )
-                ],
-            )
+
+class DayOfWeekCos(DayOfWeekIndex):
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        day_of_week = super().__call__(index)
+        return np.cos(day_of_week * (2.0 * math.pi / 6))
+
+
+class DayOfMonthSin(DayOfMonthIndex):
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        day_of_month = super().__call__(index)
+        return np.sin(
+            day_of_month * (2.0 * math.pi / (index.days_in_month - 1))
+        )
+
+
+class DayOfMonthCos(DayOfMonthIndex):
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        day_of_month = super().__call__(index)
+        return np.cos(
+            day_of_month * (2.0 * math.pi / (index.days_in_month - 1))
+        )
+
+
+class DayOfYearSin(DayOfYearIndex):
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        day_of_year = super().__call__(index)
+        return np.sin(day_of_year * (2.0 * math.pi / 365))
+
+
+class DayOfYearCos(DayOfYearIndex):
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        day_of_year = super().__call__(index)
+        return np.cos(day_of_year * (2.0 * math.pi / 365))
+
+
+class WeekOfYearSin(WeekOfYearIndex):
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        week_of_year = super().__call__(index)
+        return np.sin(week_of_year * (2.0 * math.pi / 52))
+
+
+class WeekOfYearCos(WeekOfYearIndex):
+    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
+        week_of_year = super().__call__(index)
+        return np.cos(week_of_year * (2.0 * math.pi / 52))

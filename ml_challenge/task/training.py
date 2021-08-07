@@ -5,7 +5,7 @@ import pickle
 import shutil
 from functools import cached_property
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Type
 from glob import glob
 
 import luigi
@@ -14,9 +14,17 @@ import torch
 import pytorch_lightning as pl
 import wandb
 from gluonts.dataset.common import Dataset
-from gluonts.time_feature import get_lags_for_frequency
+from gluonts.time_feature import (
+    get_lags_for_frequency,
+    TimeFeature,
+    DayOfWeek,
+    DayOfMonth,
+    DayOfYear, WeekOfYear,
+)
 from gluonts.torch.model.predictor import PyTorchPredictor
-from pts.modules import NegativeBinomialOutput
+from gluonts.torch.modules.distribution_output import DistributionOutput
+from pts.modules import NegativeBinomialOutput, PoissonOutput, ZeroInflatedPoissonOutput, \
+    ZeroInflatedNegativeBinomialOutput
 from sklearn.preprocessing import OrdinalEncoder
 
 from ml_challenge.dataset import (
@@ -25,14 +33,37 @@ from ml_challenge.dataset import (
     FilterTimeSeriesTransformation,
     TruncateTargetTransformation,
 )
-from ml_challenge.gluonts import CustomDeepAREstimator
+from ml_challenge.gluonts import CustomDeepAREstimator, DayOfWeekSin, DayOfWeekCos, DayOfMonthSin, DayOfMonthCos, \
+    DayOfYearSin, DayOfYearCos, WeekOfYearSin, WeekOfYearCos
 from ml_challenge.path import get_assets_path
-from ml_challenge.submission import generate_submission_with_quantiles
 from ml_challenge.task.data_preparation import PrepareGluonTimeSeriesDatasets
 from ml_challenge.utils import get_sku_from_data_entry_path
 from ml_challenge.wandb import WandbWithBestMetricLogger
 
 _DEFAULT_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+_DISTRIBUTIONS: Dict[str, Type[DistributionOutput]] = {
+    "negative_binomial": NegativeBinomialOutput,
+    "zero_inflated_negative_binomial": ZeroInflatedNegativeBinomialOutput,
+    "poisson": PoissonOutput,
+    "zero_inflated_poisson": ZeroInflatedPoissonOutput,
+}
+
+_TIME_FEATURES: Dict[str, Type[TimeFeature]] = {
+    "day_of_week": DayOfWeek,
+    "day_of_month": DayOfMonth,
+    "day_of_year": DayOfYear,
+    "week_of_year": WeekOfYear,
+    "day_of_week_sin": DayOfWeekSin,
+    "day_of_week_cos": DayOfWeekCos,
+    "day_of_month_sin": DayOfMonthSin,
+    "day_of_month_cos": DayOfMonthCos,
+    "day_of_year_sin": DayOfYearSin,
+    "day_of_year_cos": DayOfYearCos,
+    "week_of_year_sin": WeekOfYearSin,
+    "week_of_year_cos": WeekOfYearCos,
+}
 
 
 class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
@@ -54,8 +85,16 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
     test_steps: int = luigi.IntParameter(default=30)
     validate_with_non_testing_skus: bool = luigi.BoolParameter(default=False)
 
+    distribution: str = luigi.ChoiceParameter(
+        choices=_DISTRIBUTIONS.keys(), default="negative_binomial"
+    )
+
     context_length: int = luigi.IntParameter(default=30)
     lags_seq_ub: int = luigi.IntParameter(default=60)
+    time_features: List[str] = luigi.ListParameter(
+        # default=["day_of_week", "day_of_month", "day_of_year"]
+        default=["day_of_week_sin", "day_of_week_cos", "day_of_month_sin", "day_of_month_cos", "day_of_year_sin", "day_of_year_cos", "week_of_year_sin", "week_of_year_cos"]
+    )
     num_layers: int = luigi.IntParameter(default=2)
     hidden_size: int = luigi.IntParameter(default=40)
     dropout_rate: float = luigi.FloatParameter(default=0.1)
@@ -224,9 +263,12 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
             num_feat_static_cat=len(self.categorical_variables),
             cardinality=self.cardinality,
             embedding_dimension=self.embedding_dimension,
-            distr_output=NegativeBinomialOutput(),
+            distr_output=_DISTRIBUTIONS[self.distribution](),
             scaling=True,
             lags_seq=get_lags_for_frequency("D", lag_ub=self.lags_seq_ub),
+            time_features=[
+                _TIME_FEATURES[time_feature]() for time_feature in self.time_features
+            ],
             num_parallel_samples=self.num_parallel_samples,
             batch_size=self.batch_size,
             lr=self.lr,
@@ -256,6 +298,8 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
         )
 
         self._serialize(train_output.predictor)
-        predictor_artifact = wandb.Artifact(name=f"artifact-{wandb_logger.experiment.id}", type="model")
+        predictor_artifact = wandb.Artifact(
+            name=f"artifact-{wandb_logger.experiment.id}", type="model"
+        )
         predictor_artifact.add_dir(os.path.join(self.output().path, "predictor"))
         wandb_logger.experiment.log_artifact(predictor_artifact)
