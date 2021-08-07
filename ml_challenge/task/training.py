@@ -19,12 +19,17 @@ from gluonts.time_feature import (
     TimeFeature,
     DayOfWeek,
     DayOfMonth,
-    DayOfYear, WeekOfYear,
+    DayOfYear,
+    WeekOfYear,
 )
 from gluonts.torch.model.predictor import PyTorchPredictor
 from gluonts.torch.modules.distribution_output import DistributionOutput
-from pts.modules import NegativeBinomialOutput, PoissonOutput, ZeroInflatedPoissonOutput, \
-    ZeroInflatedNegativeBinomialOutput
+from pts.modules import (
+    NegativeBinomialOutput,
+    PoissonOutput,
+    ZeroInflatedPoissonOutput,
+    ZeroInflatedNegativeBinomialOutput,
+)
 from sklearn.preprocessing import OrdinalEncoder
 
 from ml_challenge.dataset import (
@@ -33,8 +38,17 @@ from ml_challenge.dataset import (
     FilterTimeSeriesTransformation,
     TruncateTargetTransformation,
 )
-from ml_challenge.gluonts import CustomDeepAREstimator, DayOfWeekSin, DayOfWeekCos, DayOfMonthSin, DayOfMonthCos, \
-    DayOfYearSin, DayOfYearCos, WeekOfYearSin, WeekOfYearCos
+from ml_challenge.gluonts import (
+    CustomDeepAREstimator,
+    DayOfWeekSin,
+    DayOfWeekCos,
+    DayOfMonthSin,
+    DayOfMonthCos,
+    DayOfYearSin,
+    DayOfYearCos,
+    WeekOfYearSin,
+    WeekOfYearCos,
+)
 from ml_challenge.path import get_assets_path
 from ml_challenge.task.data_preparation import PrepareGluonTimeSeriesDatasets
 from ml_challenge.utils import get_sku_from_data_entry_path
@@ -139,15 +153,19 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
             )
 
     @cached_property
+    def input_path(self) -> str:
+        if not os.path.exists(self.input().path):
+            return self.input().path.lower()  # trainml.ai lowercases the dataset
+        return self.input().path
+
+    @cached_property
     def categorical_encoder(self) -> OrdinalEncoder:
-        with open(
-            os.path.join(self.input().path, "categorical_encoder.pkl"), "rb"
-        ) as f:
+        with open(os.path.join(self.input_path, "categorical_encoder.pkl"), "rb") as f:
             return pickle.load(f)
 
     @cached_property
     def holidays_df(self) -> pd.DataFrame:
-        return pd.read_csv(os.path.join(self.input().path, "holidays.csv")).set_index(
+        return pd.read_csv(os.path.join(self.input_path, "holidays.csv")).set_index(
             ["date", "site_id"]
         )
 
@@ -163,7 +181,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
 
     @cached_property
     def train_dataset(self) -> Dataset:
-        paths = glob(os.path.join(self.input().path, "*.json.gz"))
+        paths = glob(os.path.join(self.input_path, "*.json.gz"))
         if self.validate_with_non_testing_skus:
             testing_skus = set(self.test_df["sku"])
             paths = [
@@ -181,7 +199,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
     @cached_property
     def val_dataset(self) -> Optional[Dataset]:
         if self.validate_with_non_testing_skus:
-            paths = glob(os.path.join(self.input().path, "*.json.gz"))
+            paths = glob(os.path.join(self.input_path, "*.json.gz"))
             testing_skus = set(self.test_df["sku"])
             paths = [
                 path
@@ -199,7 +217,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
     @cached_property
     def test_dataset(self) -> Dataset:
         paths = self.test_df["sku"].apply(
-            lambda sku: os.path.join(self.input().path, f"{sku}.json.gz")
+            lambda sku: os.path.join(self.input_path, f"{sku}.json.gz")
         )
         return SameSizeTransformedDataset(
             JsonGzDataset(paths, freq="D"),
@@ -227,7 +245,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
         pl.seed_everything(self.seed, workers=True)
 
         shutil.copy(
-            os.path.join(self.input().path, "categorical_encoder.pkl"),
+            os.path.join(self.input_path, "categorical_encoder.pkl"),
             os.path.join(self.output().path, "categorical_encoder.pkl"),
             follow_symlinks=True,
         )
