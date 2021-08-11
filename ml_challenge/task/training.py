@@ -29,6 +29,9 @@ from pts.modules import (
     PoissonOutput,
     ZeroInflatedPoissonOutput,
     ZeroInflatedNegativeBinomialOutput,
+    NormalOutput,
+    StudentTOutput,
+    BetaOutput,
 )
 from sklearn.preprocessing import OrdinalEncoder
 
@@ -37,6 +40,7 @@ from ml_challenge.dataset import (
     SameSizeTransformedDataset,
     FilterTimeSeriesTransformation,
     TruncateTargetTransformation,
+    ChangeTargetToMinutesActiveTransformation,
 )
 from ml_challenge.gluonts import (
     CustomDeepAREstimator,
@@ -62,6 +66,9 @@ _DISTRIBUTIONS: Dict[str, Type[DistributionOutput]] = {
     "zero_inflated_negative_binomial": ZeroInflatedNegativeBinomialOutput,
     "poisson": PoissonOutput,
     "zero_inflated_poisson": ZeroInflatedPoissonOutput,
+    "normal": NormalOutput,
+    "student_t": StudentTOutput,
+    "beta": BetaOutput,
 }
 
 _TIME_FEATURES: Dict[str, Type[TimeFeature]] = {
@@ -179,6 +186,9 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
     def test_df(self) -> pd.DataFrame:
         return pd.read_csv(os.path.join(get_assets_path(), "test_data.csv"))
 
+    def create_dataset(self, paths) -> Dataset:
+        return JsonGzDataset(paths, freq="D")
+
     @cached_property
     def train_dataset(self) -> Dataset:
         paths = glob(os.path.join(self.input_path, "*.json.gz"))
@@ -190,7 +200,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
                 if get_sku_from_data_entry_path(path) in testing_skus
             ]
         return SameSizeTransformedDataset(
-            JsonGzDataset(paths, freq="D"),
+            self.create_dataset(paths),
             transformation=FilterTimeSeriesTransformation(
                 start=0, end=-self.test_steps
             ),
@@ -207,7 +217,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
                 if get_sku_from_data_entry_path(path) not in testing_skus
             ]
             return SameSizeTransformedDataset(
-                JsonGzDataset(paths, freq="D"),
+                self.create_dataset(paths),
                 transformation=FilterTimeSeriesTransformation(
                     start=0, end=-self.test_steps
                 ),
@@ -220,7 +230,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
             lambda sku: os.path.join(self.input_path, f"{sku}.json.gz")
         )
         return SameSizeTransformedDataset(
-            JsonGzDataset(paths, freq="D"),
+            self.create_dataset(paths),
             transformation=TruncateTargetTransformation(self.test_steps),
         )
 
@@ -236,6 +246,14 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
         predictor = PyTorchPredictor.deserialize(Path(predictor_path), device=device,)
         predictor.prediction_net.to(device)
         return predictor
+
+    @property
+    def wandb_project(self) -> str:
+        return "ml-challenge"
+
+    @property
+    def num_feat_dynamic_real(self) -> int:
+        return len(self.real_variables) + len(self.holidays_df.columns)
 
     def run(self):
         os.makedirs(self.output().path, exist_ok=True)
@@ -255,7 +273,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
         wandb_logger = WandbWithBestMetricLogger(
             name=self.task_id,
             save_dir=self.output().path,
-            project="ml-challenge",
+            project=self.wandb_project,
             log_model=False,
             monitor=monitor,
             mode="min",
@@ -275,8 +293,7 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
             num_layers=self.num_layers,
             hidden_size=self.hidden_size,
             dropout_rate=self.dropout_rate,
-            num_feat_dynamic_real=len(self.real_variables)
-            + len(self.holidays_df.columns),
+            num_feat_dynamic_real=self.num_feat_dynamic_real,
             num_feat_static_cat=len(self.categorical_variables),
             cardinality=self.cardinality,
             embedding_dimension=self.embedding_dimension,
@@ -320,3 +337,25 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
         )
         predictor_artifact.add_dir(os.path.join(self.output().path, "predictor"))
         wandb_logger.experiment.log_artifact(predictor_artifact)
+
+
+class DeepARForMinutesActiveTraining(DeepARTraining):
+    distribution: str = luigi.ChoiceParameter(
+        choices=_DISTRIBUTIONS.keys(), default="student_t"
+    )
+
+    @property
+    def wandb_project(self) -> str:
+        return "ml-challenge-minutes-active"
+
+    @property
+    def num_feat_dynamic_real(self) -> int:
+        return super().num_feat_dynamic_real - 1
+
+    def create_dataset(self, paths) -> Dataset:
+        return SameSizeTransformedDataset(
+            super().create_dataset(paths),
+            transformation=ChangeTargetToMinutesActiveTransformation(
+                self.real_variables.index("minutes_active")
+            ),
+        )

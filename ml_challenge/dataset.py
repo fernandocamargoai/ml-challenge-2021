@@ -1,13 +1,10 @@
 import functools
 import os
 import warnings
-from glob import glob
 from multiprocessing import Pool
-from pathlib import Path
-from typing import Optional, Iterator, List, Any, Dict
+from typing import Optional, Iterator, List
 
 import numpy as np
-import pandas as pd
 from gluonts.dataset.common import DataEntry, Dataset, ProcessDataEntry, SourceContext
 from gluonts.dataset.field_names import FieldName
 from gluonts.transform import TransformedDataset, MapTransformation
@@ -178,3 +175,19 @@ class FilterTimeSeriesTransformation(MapTransformation):
         if data.get(PRICE_FIELD_NAME) is not None:
             new_data[PRICE_FIELD_NAME] = data[PRICE_FIELD_NAME][self._start : self._end]
         return new_data
+
+
+class ChangeTargetToMinutesActiveTransformation(MapTransformation):
+    def __init__(self, minutes_active_index: int) -> None:
+        super().__init__()
+        self._minutes_active_index = minutes_active_index
+
+    def map_transform(self, data: DataEntry, is_train: bool) -> DataEntry:
+        data = data.copy()
+        data[FieldName.TARGET] = data[FieldName.FEAT_DYNAMIC_REAL][
+            self._minutes_active_index
+        ]
+        data[FieldName.FEAT_DYNAMIC_REAL] = np.delete(
+            data[FieldName.FEAT_DYNAMIC_REAL], self._minutes_active_index, axis=0
+        )
+        return data
