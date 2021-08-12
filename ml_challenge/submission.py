@@ -54,8 +54,9 @@ def apply_ecdf(sample_days: np.ndarray, total_days: int = 30):
 
 def apply_beta(sample_days: np.ndarray, total_days: int = 30):
     mu = sample_days.mean() / total_days
-    var = (sample_days.std() ** 2) / total_days
-    a = ((1 - mu) / var - 1 / mu) * mu ** 2
+    sigma = sample_days.std() / total_days
+
+    a = mu ** 2 * ((1 - mu) / sigma ** 2 - 1 / mu)
     b = a * (1 / mu - 1)
 
     distro = beta(a, b)

@@ -2,7 +2,7 @@ import functools
 import os
 import warnings
 from multiprocessing import Pool
-from typing import Optional, Iterator, List
+from typing import Optional, Iterator, List, Dict
 
 import numpy as np
 from gluonts.dataset.common import DataEntry, Dataset, ProcessDataEntry, SourceContext
@@ -126,9 +126,6 @@ class JsonGzDataset(Dataset):
             self._json_files = [JsonGzFile(path, process, cache) for path in files]
         self._len = len(self._json_files)
 
-        if self._len == 0:
-            raise OSError(f"no valid file found in {path}")
-
     def __iter__(self) -> Iterator[DataEntry]:
         for json_file in self._json_files:
             yield json_file.get_data()
@@ -190,4 +187,43 @@ class ChangeTargetToMinutesActiveTransformation(MapTransformation):
         data[FieldName.FEAT_DYNAMIC_REAL] = np.delete(
             data[FieldName.FEAT_DYNAMIC_REAL], self._minutes_active_index, axis=0
         )
+        return data
+
+
+class UseMinutesActiveForecastingTransformation(MapTransformation):
+    def __init__(
+        self,
+        minutes_active_index: int,
+        minutes_active_forecasts_dict: Dict[int, np.ndarray],
+    ) -> None:
+        super().__init__()
+        self._minutes_active_index = minutes_active_index
+        self._minutes_active_forecasts_dict = minutes_active_forecasts_dict
+
+    def map_transform(self, data: DataEntry, is_train: bool) -> DataEntry:
+        data = data.copy()
+        minutes_active_forecast = self._minutes_active_forecasts_dict[
+            data[FieldName.ITEM_ID]
+        ]
+
+        data[FieldName.FEAT_DYNAMIC_REAL][self._minutes_active_index][
+            -len(minutes_active_forecast) :
+        ] = np.clip(minutes_active_forecast, 0.0, 1.0)
+        return data
+
+
+class UseMeanOfLastMinutesActiveTransformation(MapTransformation):
+    def __init__(self, minutes_active_index: int, test_steps: int,) -> None:
+        super().__init__()
+        self._minutes_active_index = minutes_active_index
+        self._test_steps = test_steps
+
+    def map_transform(self, data: DataEntry, is_train: bool) -> DataEntry:
+        data = data.copy()
+
+        data[FieldName.FEAT_DYNAMIC_REAL][self._minutes_active_index][
+            -self._test_steps :
+        ] = data[FieldName.FEAT_DYNAMIC_REAL][self._minutes_active_index][
+            -(self._test_steps * 2) : -self._test_steps
+        ].mean()
         return data
