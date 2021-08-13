@@ -162,8 +162,6 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
 
     @cached_property
     def input_path(self) -> str:
-        if "TRAINML_DATA_PATH" in os.environ:
-            return self.input().path.lower()  # trainml.ai lowercases the dataset
         return self.input().path
 
     @cached_property

@@ -16,6 +16,27 @@ from ml_challenge.path import get_assets_path
 from ml_challenge.utils import save_json_gzip
 
 
+class PreProcessDataset(luigi.Task):
+    categorical_variables: List[str] = luigi.ListParameter(
+        default=[
+            "site_id",
+            "currency",
+            "listing_type",
+            "shipping_logistic_type",
+            "shipping_payment",
+            "item_domain_id",
+            "item_id",
+            "sku",
+        ]
+    )
+    real_variables: List[str] = luigi.ListParameter(
+        default=["currency_relative_price", "current_price", "minutes_active"]
+    )
+
+    def run(self):
+        super().run()
+
+
 def _default_real_variable(exog_column: str, last_value: float) -> float:
     return {"minutes_active": 1.0}.get(exog_column, last_value)
 
@@ -127,13 +148,7 @@ class PrepareGluonTimeSeriesDatasets(luigi.Task):
         )
 
     def output(self):
-        if "DATA_PATH" in os.environ:
-            path = os.path.join(os.environ["DATA_PATH"], self.task_id)
-            if "TRAINML_DATA_PATH" in os.environ:
-                path = path.lower()  # trainml.ai lowercases the dataset
-            return luigi.LocalTarget(path)
-        else:
-            return luigi.LocalTarget(os.path.join("output", self.__class__.__name__, self.task_id))
+        return luigi.LocalTarget(os.path.join("output", self.__class__.__name__, self.task_id))
 
     def run(self):
         os.makedirs(self.output().path)
