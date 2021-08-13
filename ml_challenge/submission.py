@@ -3,7 +3,7 @@ from typing import List, Tuple, Callable
 import numpy as np
 import tweedie
 from gluonts.model.forecast import SampleForecast
-from scipy.stats import norm, beta
+from scipy.stats import norm, beta, gamma
 from statsmodels.distributions import ECDF
 
 
@@ -31,28 +31,36 @@ def cdf_to_probas(cdf: List[float]) -> List[float]:
 
 
 def apply_tweedie(
-    sample_days: np.ndarray, phi: float = 2.0, power=1.3, total_days: int = 30
+    sample_days: np.ndarray,
+    phi: float = 2.0,
+    power=1.3,
+    min_std: float = 2.0,
+    total_days: int = 30,
 ) -> List[float]:
-    distro = tweedie.tweedie(p=power, mu=sample_days.mean(), phi=phi)
+    mu = sample_days.mean()
+    if phi < 0:
+        sigma = max(sample_days.std(), min_std)
+        phi = (sigma ** 2) / mu ** power
+    distro = tweedie.tweedie(p=power, mu=mu, phi=phi)
 
     cdf = [distro.cdf(i) for i in range(1, total_days + 1)]
     return cdf_to_probas(cdf)
 
 
-def apply_normal(sample_days: np.ndarray, total_days: int = 30):
+def apply_normal(sample_days: np.ndarray, total_days: int = 30) -> List[float]:
     distro = norm(sample_days.mean(), sample_days.std())
 
     cdf = [distro.cdf(i) for i in range(1, total_days + 1)]
     return cdf_to_probas(cdf)
 
 
-def apply_ecdf(sample_days: np.ndarray, total_days: int = 30):
+def apply_ecdf(sample_days: np.ndarray, total_days: int = 30) -> List[float]:
     ecdf = ECDF(sample_days)
     cdf = [ecdf(i) for i in range(1, total_days + 1)]
     return cdf_to_probas(cdf)
 
 
-def apply_beta(sample_days: np.ndarray, total_days: int = 30):
+def apply_beta(sample_days: np.ndarray, total_days: int = 30) -> List[float]:
     mu = sample_days.mean() / total_days
     sigma = sample_days.std() / total_days
 

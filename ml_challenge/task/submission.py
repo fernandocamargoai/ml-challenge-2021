@@ -35,7 +35,7 @@ def get_suffix(task: Union["GenerateOutOfStockDaySamplePredictions", "GenerateSu
             "_%s_%s" % (os.path.split(task.minutes_active_task_path)[-1], task.minutes_active_forecast_method)
         )
     elif task.use_mean_of_last_minutes_active:
-        return "using_mean_of_last_minutes_active"
+        return "_using_mean_of_last_minutes_active"
     else:
         return ""
 
@@ -77,7 +77,7 @@ class GenerateOutOfStockDaySamplePredictions(luigi.Task):
         if self.minutes_active_forecast_method == "mean":
             return forecast.mean
         elif self.minutes_active_forecast_method == "max":
-            return forecast.samples.max(axis=1)
+            return forecast.samples.max(axis=0)
         else:
             raise ValueError()
 
@@ -178,10 +178,13 @@ class GenerateSubmission(luigi.Task):
 
     def output(self):
         suffix = get_suffix(self)
+        distribution = self.distribution
+        if distribution == "tweedie":
+            distribution += f"_phi={self.tweedie_phi}_power={self.tweedie_power}"
         return luigi.LocalTarget(
             os.path.join(
                 self.task_path,
-                f"submission_{self.distribution}_num-samples={self.num_samples}_seed={self.seed}{suffix}.csv.gz",
+                f"submission_{distribution}_num-samples={self.num_samples}_seed={self.seed}{suffix}.csv.gz",
             )
         )
 

@@ -23,7 +23,7 @@ from gluonts.time_feature import (
     WeekOfYear,
 )
 from gluonts.torch.model.predictor import PyTorchPredictor
-from gluonts.torch.modules.distribution_output import DistributionOutput
+from gluonts.torch.modules.distribution_output import DistributionOutput, GammaOutput
 from pts.modules import (
     NegativeBinomialOutput,
     PoissonOutput,
@@ -69,6 +69,7 @@ _DISTRIBUTIONS: Dict[str, Type[DistributionOutput]] = {
     "normal": NormalOutput,
     "student_t": StudentTOutput,
     "beta": BetaOutput,
+    "gamma": GammaOutput,
 }
 
 _TIME_FEATURES: Dict[str, Type[TimeFeature]] = {
