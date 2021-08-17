@@ -3,6 +3,12 @@ import json
 import os
 from typing import cast, TypeVar, Any
 
+
+def save_params(dir_path: str, params: dict):
+    with open(os.path.join(dir_path, "params.json"), "w") as params_file:
+        json.dump(params, params_file, default=lambda o: dict(o), indent=4)
+
+
 T = TypeVar("T")
 
 

@@ -5,7 +5,7 @@ import pickle
 import shutil
 from functools import cached_property
 from pathlib import Path
-from typing import List, Optional, Dict, Type
+from typing import List, Optional, Dict, Type, cast, Any
 from glob import glob
 
 import luigi
@@ -22,8 +22,9 @@ from gluonts.time_feature import (
     DayOfYear,
     WeekOfYear,
 )
+from gluonts.torch.model.deepar import DeepAREstimator
 from gluonts.torch.model.predictor import PyTorchPredictor
-from gluonts.torch.modules.distribution_output import DistributionOutput, GammaOutput
+from gluonts.torch.modules.distribution_output import DistributionOutput, GammaOutput, BetaOutput
 from pts.modules import (
     NegativeBinomialOutput,
     PoissonOutput,
@@ -31,7 +32,6 @@ from pts.modules import (
     ZeroInflatedNegativeBinomialOutput,
     NormalOutput,
     StudentTOutput,
-    BetaOutput,
 )
 from sklearn.preprocessing import OrdinalEncoder
 
@@ -41,9 +41,13 @@ from ml_challenge.dataset import (
     FilterTimeSeriesTransformation,
     TruncateTargetTransformation,
     ChangeTargetToMinutesActiveTransformation,
+    MoveMinutesActiveToControlTransformation,
+    TruncateControlTransformation,
 )
-from ml_challenge.gluonts import (
-    CustomDeepAREstimator,
+from ml_challenge.gluonts.custom import CustomDeepAREstimator
+from ml_challenge.gluonts.distribution import BimodalBetaOutput, BiStudentTMixtureOutput
+from ml_challenge.gluonts.model.causal_deepar import CausalDeepAREstimator
+from ml_challenge.gluonts.time_feature import (
     DayOfWeekSin,
     DayOfWeekCos,
     DayOfMonthSin,
@@ -55,7 +59,7 @@ from ml_challenge.gluonts import (
 )
 from ml_challenge.path import get_assets_path
 from ml_challenge.task.data_preparation import PrepareGluonTimeSeriesDatasets
-from ml_challenge.utils import get_sku_from_data_entry_path
+from ml_challenge.utils import get_sku_from_data_entry_path, save_params
 from ml_challenge.wandb import WandbWithBestMetricLogger
 
 _DEFAULT_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -69,7 +73,9 @@ _DISTRIBUTIONS: Dict[str, Type[DistributionOutput]] = {
     "normal": NormalOutput,
     "student_t": StudentTOutput,
     "beta": BetaOutput,
+    "bimodal_beta": BimodalBetaOutput,
     "gamma": GammaOutput,
+    "bi_student_t_mixture": BiStudentTMixtureOutput,
 }
 
 _TIME_FEATURES: Dict[str, Type[TimeFeature]] = {
@@ -88,7 +94,7 @@ _TIME_FEATURES: Dict[str, Type[TimeFeature]] = {
 }
 
 
-class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
+class BaseTraining(luigi.Task, metaclass=abc.ABCMeta):
     categorical_variables: List[str] = luigi.ListParameter(
         default=[
             "site_id",
@@ -107,20 +113,11 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
     test_steps: int = luigi.IntParameter(default=30)
     validate_with_non_testing_skus: bool = luigi.BoolParameter(default=False)
 
-    distribution: str = luigi.ChoiceParameter(
-        choices=_DISTRIBUTIONS.keys(), default="negative_binomial"
-    )
-
     context_length: int = luigi.IntParameter(default=30)
     lags_seq_ub: int = luigi.IntParameter(default=60)
     time_features: List[str] = luigi.ListParameter(
         default=["day_of_week", "day_of_month", "day_of_year"]
     )
-    num_layers: int = luigi.IntParameter(default=2)
-    hidden_size: int = luigi.IntParameter(default=40)
-    dropout_rate: float = luigi.FloatParameter(default=0.1)
-    embedding_dimension: List[int] = luigi.ListParameter(default=None)
-    num_parallel_samples: int = luigi.IntParameter(default=100)
 
     precision: int = luigi.IntParameter(default=32)
 
@@ -135,39 +132,18 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
 
     num_workers: int = luigi.IntParameter(default=0)
     num_prefetch: int = luigi.IntParameter(default=2)
-    cache_dataset: bool = luigi.BoolParameter(default=False)
-    preload_dataset: bool = luigi.BoolParameter(default=False)
-    check_data: bool = luigi.BoolParameter(default=False)
 
     seed: int = luigi.IntParameter(default=42)
     use_gpu: bool = luigi.BoolParameter(default=False)
-
-    def requires(self):
-        return PrepareGluonTimeSeriesDatasets(
-            categorical_variables=self.categorical_variables,
-            real_variables=self.real_variables,
-            test_steps=self.test_steps,
-        )
 
     def output(self):
         return luigi.LocalTarget(
             os.path.join("output", self.__class__.__name__, self.task_id)
         )
 
-    def _save_params(self):
-        with open(os.path.join(self.output().path, "params.json"), "w") as params_file:
-            json.dump(
-                self.param_kwargs, params_file, default=lambda o: dict(o), indent=4
-            )
-
     @cached_property
     def input_path(self) -> str:
         return self.input().path
-
-    @cached_property
-    def categorical_encoder(self) -> OrdinalEncoder:
-        with open(os.path.join(self.input_path, "categorical_encoder.pkl"), "rb") as f:
-            return pickle.load(f)
 
     @cached_property
     def holidays_df(self) -> pd.DataFrame:
@@ -176,14 +152,42 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
         )
 
     @cached_property
+    def test_df(self) -> pd.DataFrame:
+        return pd.read_csv(os.path.join(get_assets_path(), "test_data.csv"))
+
+
+class DeepARTraining(BaseTraining, metaclass=abc.ABCMeta):
+    distribution: str = luigi.ChoiceParameter(
+        choices=_DISTRIBUTIONS.keys(), default="negative_binomial"
+    )
+
+    num_layers: int = luigi.IntParameter(default=2)
+    hidden_size: int = luigi.IntParameter(default=40)
+    dropout_rate: float = luigi.FloatParameter(default=0.1)
+    embedding_dimension: List[int] = luigi.ListParameter(default=None)
+    num_parallel_samples: int = luigi.IntParameter(default=100)
+
+    cache_dataset: bool = luigi.BoolParameter(default=False)
+    preload_dataset: bool = luigi.BoolParameter(default=False)
+    check_data: bool = luigi.BoolParameter(default=False)
+
+    def requires(self):
+        return PrepareGluonTimeSeriesDatasets(
+            categorical_variables=self.categorical_variables,
+            real_variables=self.real_variables,
+            test_steps=self.test_steps,
+        )
+
+    @cached_property
+    def categorical_encoder(self) -> OrdinalEncoder:
+        with open(os.path.join(self.input_path, "categorical_encoder.pkl"), "rb") as f:
+            return pickle.load(f)
+
+    @cached_property
     def cardinality(self) -> List[int]:
         return [
             len(categories) + 1 for categories in self.categorical_encoder.categories_
         ]
-
-    @cached_property
-    def test_df(self) -> pd.DataFrame:
-        return pd.read_csv(os.path.join(get_assets_path(), "test_data.csv"))
 
     def create_dataset(self, paths) -> Dataset:
         return JsonGzDataset(paths, freq="D")
@@ -254,38 +258,12 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
     def num_feat_dynamic_real(self) -> int:
         return len(self.real_variables) + len(self.holidays_df.columns)
 
-    def run(self):
-        os.makedirs(self.output().path, exist_ok=True)
-
-        self._save_params()
-
-        pl.seed_everything(self.seed, workers=True)
-
-        shutil.copy(
-            os.path.join(self.input_path, "categorical_encoder.pkl"),
-            os.path.join(self.output().path, "categorical_encoder.pkl"),
-            follow_symlinks=True,
-        )
-
-        monitor = "train_loss" if self.val_dataset is None else "val_loss"
-
-        wandb_logger = WandbWithBestMetricLogger(
-            name=self.task_id,
-            save_dir=self.output().path,
-            project=self.wandb_project,
-            log_model=False,
-            monitor=monitor,
-            mode="min",
-        )
-        wandb_logger.log_hyperparams(self.param_kwargs)
-
-        early_stopping = pl.callbacks.EarlyStopping(
-            monitor=monitor,
-            mode="min",
-            patience=self.early_stopping_patience,
-            verbose=True,
-        )
-        estimator = CustomDeepAREstimator(
+    def get_estimator_params(
+        self,
+        wandb_logger: WandbWithBestMetricLogger,
+        early_stopping: pl.callbacks.EarlyStopping,
+    ) -> Dict[str, Any]:
+        return dict(
             freq="D",
             prediction_length=self.test_steps,
             context_length=self.context_length,
@@ -323,6 +301,48 @@ class DeepARTraining(luigi.Task, metaclass=abc.ABCMeta):
             ),
         )
 
+    def create_estimator(
+        self,
+        wandb_logger: WandbWithBestMetricLogger,
+        early_stopping: pl.callbacks.EarlyStopping,
+    ) -> DeepAREstimator:
+        return CustomDeepAREstimator(
+            **self.get_estimator_params(wandb_logger, early_stopping)
+        )
+
+    def run(self):
+        os.makedirs(self.output().path, exist_ok=True)
+
+        save_params(self.output().path, self.param_kwargs)
+
+        pl.seed_everything(self.seed, workers=True)
+
+        shutil.copy(
+            os.path.join(self.input_path, "categorical_encoder.pkl"),
+            os.path.join(self.output().path, "categorical_encoder.pkl"),
+            follow_symlinks=True,
+        )
+
+        monitor = "train_loss" if self.val_dataset is None else "val_loss"
+
+        wandb_logger = WandbWithBestMetricLogger(
+            name=self.task_id,
+            save_dir=self.output().path,
+            project=self.wandb_project,
+            log_model=False,
+            monitor=monitor,
+            mode="min",
+        )
+        wandb_logger.log_hyperparams(self.param_kwargs)
+
+        early_stopping = pl.callbacks.EarlyStopping(
+            monitor=monitor,
+            mode="min",
+            patience=self.early_stopping_patience,
+            verbose=True,
+        )
+        estimator = self.create_estimator(wandb_logger, early_stopping)
+
         train_output = estimator.train_model(
             self.train_dataset,
             validation_data=self.val_dataset,
@@ -357,4 +377,43 @@ class DeepARForMinutesActiveTraining(DeepARTraining):
             transformation=ChangeTargetToMinutesActiveTransformation(
                 self.real_variables.index("minutes_active")
             ),
+        )
+
+
+class CausalDeepARTraining(DeepARTraining):
+    control_distribution: str = luigi.ChoiceParameter(
+        choices=_DISTRIBUTIONS.keys(), default="student_t"
+    )
+
+    def create_estimator(
+        self,
+        wandb_logger: WandbWithBestMetricLogger,
+        early_stopping: pl.callbacks.EarlyStopping,
+    ) -> CausalDeepAREstimator:
+        return CausalDeepAREstimator(
+            control_output=_DISTRIBUTIONS[self.control_distribution](),
+            **self.get_estimator_params(wandb_logger, early_stopping),
+        )
+
+    @property
+    def wandb_project(self) -> str:
+        return "ml-challenge-causal-deepar"
+
+    @property
+    def num_feat_dynamic_real(self) -> int:
+        return super().num_feat_dynamic_real - 1
+
+    def create_dataset(self, paths) -> Dataset:
+        return SameSizeTransformedDataset(
+            super().create_dataset(paths),
+            transformation=MoveMinutesActiveToControlTransformation(
+                self.real_variables.index("minutes_active")
+            ),
+        )
+
+    @cached_property
+    def test_dataset(self) -> Dataset:
+        return SameSizeTransformedDataset(
+            super().test_dataset,
+            transformation=TruncateControlTransformation(self.test_steps),
         )

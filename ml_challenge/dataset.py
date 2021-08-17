@@ -190,6 +190,40 @@ class ChangeTargetToMinutesActiveTransformation(MapTransformation):
         return data
 
 
+class MoveMinutesActiveToControlTransformation(MapTransformation):
+    def __init__(self, minutes_active_index: int, clip_value: float = 0.0) -> None:
+        super().__init__()
+        self._minutes_active_index = minutes_active_index
+
+    def map_transform(self, data: DataEntry, is_train: bool) -> DataEntry:
+        data = data.copy()
+        data["control"] = data[FieldName.FEAT_DYNAMIC_REAL][self._minutes_active_index]
+        data[FieldName.FEAT_DYNAMIC_REAL] = np.delete(
+            data[FieldName.FEAT_DYNAMIC_REAL], self._minutes_active_index, axis=0
+        )
+        return data
+
+
+class TruncateControlTransformation(MapTransformation):
+    def __init__(self, prediction_length: int) -> None:
+        super().__init__()
+        self._prediction_length = prediction_length
+
+    def map_transform(self, data: DataEntry, is_train: bool) -> DataEntry:
+        data = data.copy()
+        control = data["control"]
+        assert (
+            control.shape[-1] >= self._prediction_length
+        )  # handles multivariate case (target_dim, history_length)
+        data["control"] = np.concatenate(
+            (
+                control[..., : -self._prediction_length],
+                np.array([np.nan] * self._prediction_length),
+            )
+        )
+        return data
+
+
 class UseMinutesActiveForecastingTransformation(MapTransformation):
     def __init__(
         self,

@@ -15,7 +15,8 @@ from tqdm import tqdm
 
 from ml_challenge.dataset import (
     SameSizeTransformedDataset,
-    UseMinutesActiveForecastingTransformation, UseMeanOfLastMinutesActiveTransformation,
+    UseMinutesActiveForecastingTransformation,
+    UseMeanOfLastMinutesActiveTransformation,
 )
 from ml_challenge.lookahead_generator import LookaheadGenerator
 from ml_challenge.submission import (
@@ -26,13 +27,20 @@ from ml_challenge.submission import (
     apply_ecdf,
     apply_beta,
 )
-from ml_challenge.task.training import DeepARTraining, DeepARForMinutesActiveTraining
+from ml_challenge.task.training import (
+    DeepARTraining,
+    DeepARForMinutesActiveTraining,
+    CausalDeepARTraining,
+)
 
 
-def get_suffix(task: Union["GenerateOutOfStockDaySamplePredictions", "GenerateSubmission"]) -> str:
+def get_suffix(
+    task: Union["GenerateOutOfStockDaySamplePredictions", "GenerateSubmission"]
+) -> str:
     if task.minutes_active_task_path:
-        return (
-            "_%s_%s" % (os.path.split(task.minutes_active_task_path)[-1], task.minutes_active_forecast_method)
+        return "_%s_%s" % (
+            os.path.split(task.minutes_active_task_path)[-1],
+            task.minutes_active_forecast_method,
         )
     elif task.use_mean_of_last_minutes_active:
         return "_using_mean_of_last_minutes_active"
@@ -44,7 +52,9 @@ class GenerateOutOfStockDaySamplePredictions(luigi.Task):
     task_path: str = luigi.Parameter()
 
     minutes_active_task_path: str = luigi.Parameter(default=None)
-    minutes_active_forecast_method: str = luigi.ChoiceParameter(choices=["mean", "max"], default="mean")
+    minutes_active_forecast_method: str = luigi.ChoiceParameter(
+        choices=["mean", "max"], default="mean"
+    )
     use_mean_of_last_minutes_active: bool = luigi.BoolParameter(default=False)
 
     num_samples: int = luigi.IntParameter(default=100)
@@ -54,10 +64,14 @@ class GenerateOutOfStockDaySamplePredictions(luigi.Task):
     def training(self) -> DeepARTraining:
         with open(os.path.join(self.task_path, "params.json"), "r") as params_file:
             params = json.load(params_file)
-        return DeepARTraining(**params)
+        training_class = {
+            DeepARTraining.__name__: DeepARTraining,
+            CausalDeepARTraining.__name__: CausalDeepARTraining,
+        }[os.path.split(os.path.split(self.task_path)[0])[1]]
+        return training_class(**params)
 
     @cached_property
-    def minutes_active_training(self) -> DeepARTraining:
+    def minutes_active_training(self) -> DeepARForMinutesActiveTraining:
         with open(
             os.path.join(self.minutes_active_task_path, "params.json"), "r"
         ) as params_file:
@@ -95,7 +109,8 @@ class GenerateOutOfStockDaySamplePredictions(luigi.Task):
                     minutes_active_predictor.predict(
                         self.minutes_active_training.test_dataset,
                         num_samples=self.num_samples,
-                    ), total=len(self.minutes_active_training.test_dataset)
+                    ),
+                    total=len(self.minutes_active_training.test_dataset),
                 )
             ]
             minutes_active_forecasts_dict = {
@@ -152,7 +167,9 @@ class GenerateSubmission(luigi.Task):
     task_path: str = luigi.Parameter()
 
     minutes_active_task_path: str = luigi.Parameter(default=None)
-    minutes_active_forecast_method: str = luigi.ChoiceParameter(choices=["mean", "max"], default="mean")
+    minutes_active_forecast_method: str = luigi.ChoiceParameter(
+        choices=["mean", "max"], default="mean"
+    )
     use_mean_of_last_minutes_active: bool = luigi.BoolParameter(default=False)
 
     distribution: str = luigi.ChoiceParameter(
