@@ -392,6 +392,8 @@ class CausalDeepARTraining(DeepARTraining):
     ) -> CausalDeepAREstimator:
         return CausalDeepAREstimator(
             control_output=_DISTRIBUTIONS[self.control_distribution](),
+            min_control_value=0.0,
+            max_control_value=1.0,
             **self.get_estimator_params(wandb_logger, early_stopping),
         )
 

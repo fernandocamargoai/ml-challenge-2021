@@ -77,6 +77,8 @@ class CausalDeepARModel(nn.Module):
         control_output: DistributionOutput = StudentTOutput(),
         lags_seq: Optional[List[int]] = None,
         scaling: bool = True,
+        min_control_value: Optional[float] = None,
+        max_control_value: Optional[float] = None,
         num_parallel_samples: int = 100,
     ) -> None:
         super().__init__()
@@ -108,6 +110,8 @@ class CausalDeepARModel(nn.Module):
         else:
             self.scaler = NOPScaler(dim=1, keepdim=True)
             self.control_scaler = NOPScaler(dim=1, keepdim=True)
+        self.min_control_value = min_control_value
+        self.max_control_value = max_control_value
         self.lagged_rnn = LaggedLSTM(
             input_size=1 + 1,  # TODO fix
             features_size=self._number_of_features,
@@ -324,13 +328,15 @@ class CausalDeepARModel(nn.Module):
         control_distr = self.control_distribution(
             control_dist_args, control_scale, trailing_n=1
         )
-        next_control_sample = control_distr.sample(
-            sample_shape=(self.num_parallel_samples,)
+        next_control_sample = torch.clip_(
+            control_distr.sample(sample_shape=(self.num_parallel_samples,)),
+            self.min_control_value,
+            self.max_control_value,
         )
         next_control_sample = next_control_sample.transpose(0, 1).reshape(
             (next_control_sample.shape[0] * next_control_sample.shape[1], -1)
         )
-        control = repeated_future_control[:, 0: 1]
+        control = repeated_future_control[:, 0:1]
         control[control != control] = next_control_sample[control != control]
 
         distr = self.output_distribution(params, trailing_n=1)
@@ -346,26 +352,33 @@ class CausalDeepARModel(nn.Module):
             next_features = torch.cat(
                 (repeated_static_feat, repeated_time_feat[:, k : k + 1]), dim=-1,
             )
-            prior_repeated_target_input = repeated_past_target[:, : -self.context_length] / repeated_scale
-            prior_repeated_control_input = repeated_past_control[:, : -self.context_length] / repeated_control_scale
+            prior_repeated_target_input = (
+                repeated_past_target[:, : -self.context_length] / repeated_scale
+            )
+            prior_repeated_control_input = (
+                repeated_past_control[:, : -self.context_length]
+                / repeated_control_scale
+            )
             prior_repeated_input = torch.cat(
-                (prior_repeated_target_input.unsqueeze(-1), prior_repeated_control_input.unsqueeze(-1)),
+                (
+                    prior_repeated_target_input.unsqueeze(-1),
+                    prior_repeated_control_input.unsqueeze(-1),
+                ),
                 dim=-1,
             )
 
             next_input = torch.cat((next_sample, control), dim=1)
 
             rnn_outputs, repeated_state = self.lagged_rnn(
-                prior_repeated_input, next_input.reshape(-1, 1, 2), next_features, repeated_state,
+                prior_repeated_input,
+                next_input.reshape(-1, 1, 2),
+                next_features,
+                repeated_state,
             )
 
-            params = self.param_proj(torch.cat(
-                (
-                    rnn_outputs,
-                    control.unsqueeze(-1),
-                ),
-                dim=-1,
-            ))
+            params = self.param_proj(
+                torch.cat((rnn_outputs, control.unsqueeze(-1)), dim=-1)
+            )
             distr = self.output_distribution(params)
             repeated_past_target = torch.cat((repeated_past_target, next_sample), dim=1)
             next_sample = distr.sample()
@@ -375,8 +388,10 @@ class CausalDeepARModel(nn.Module):
             control_distr = self.control_distribution(
                 control_dist_args, repeated_control_scale, trailing_n=1
             )
-            new_control_sample = control_distr.sample()
-            control = repeated_future_control[:, k: k + 1]
+            new_control_sample = torch.clip_(
+                control_distr.sample(), self.min_control_value, self.max_control_value
+            )
+            control = repeated_future_control[:, k : k + 1]
             control[control != control] = new_control_sample[control != control]
             repeated_past_control = torch.cat((repeated_past_control, control), dim=1)
 

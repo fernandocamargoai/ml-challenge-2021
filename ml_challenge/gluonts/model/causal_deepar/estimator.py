@@ -88,6 +88,8 @@ class CausalDeepAREstimator(PyTorchLightningEstimator):
         control_output: DistributionOutput = StudentTOutput(),
         loss: DistributionLoss = NegativeLogLikelihood(),
         scaling: bool = True,
+        min_control_value: Optional[float] = None,
+        max_control_value: Optional[float] = None,
         lags_seq: Optional[List[int]] = None,
         time_features: Optional[List[TimeFeature]] = None,
         num_parallel_samples: int = 100,
@@ -123,6 +125,8 @@ class CausalDeepAREstimator(PyTorchLightningEstimator):
         )
         self.embedding_dimension = embedding_dimension
         self.scaling = scaling
+        self.min_control_value = min_control_value
+        self.max_control_value = max_control_value
         self.lags_seq = lags_seq
         self.time_features = (
             time_features
@@ -291,6 +295,8 @@ class CausalDeepAREstimator(PyTorchLightningEstimator):
             dropout_rate=self.dropout_rate,
             lags_seq=self.lags_seq,
             scaling=self.scaling,
+            min_control_value=self.min_control_value,
+            max_control_value=self.max_control_value,
             num_parallel_samples=self.num_parallel_samples,
         )
 
