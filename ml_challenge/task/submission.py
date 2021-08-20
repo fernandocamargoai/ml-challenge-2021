@@ -89,9 +89,9 @@ class GenerateOutOfStockDaySamplePredictions(luigi.Task):
 
     def process_minutes_active_forecast(self, forecast: SampleForecast) -> np.ndarray:
         if self.minutes_active_forecast_method == "mean":
-            return forecast.mean
+            return np.clip(forecast.mean, 0.0, 1.0)
         elif self.minutes_active_forecast_method == "max":
-            return forecast.samples.max(axis=0)
+            return np.clip(forecast.samples.max(axis=0), 0.0, 1.0)
         else:
             raise ValueError()
 

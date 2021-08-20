@@ -10,6 +10,7 @@
 # on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
 # express or implied. See the License for the specific language governing
 # permissions and limitations under the License.
+from typing import Dict, Tuple
 
 import pytorch_lightning as pl
 import torch
@@ -27,6 +28,7 @@ class CausalDeepARLightningModule(pl.LightningModule):
         loss: DistributionLoss = NegativeLogLikelihood(),
         lr: float = 1e-3,
         weight_decay: float = 1e-8,
+        control_loss_weight: float = 1.0,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -34,8 +36,9 @@ class CausalDeepARLightningModule(pl.LightningModule):
         self.loss = loss
         self.lr = lr
         self.weight_decay = weight_decay
+        self.control_loss_weight = control_loss_weight
 
-    def _compute_loss(self, batch):
+    def _compute_loss(self, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
         feat_static_cat = batch["feat_static_cat"]
         feat_static_real = batch["feat_static_real"]
         past_time_feat = batch["past_time_feat"]
@@ -71,7 +74,6 @@ class CausalDeepARLightningModule(pl.LightningModule):
             (context_control, future_control),
             dim=1,
         )
-        loss_values = self.loss(control_distr, control) + self.loss(distr, target)
 
         context_observed = past_observed_values[
             :, -self.model.context_length + 1 :
@@ -85,11 +87,29 @@ class CausalDeepARLightningModule(pl.LightningModule):
         else:
             loss_weights = observed_values.min(dim=-1, keepdim=False)
 
-        return weighted_average(loss_values, weights=loss_weights)
+        control_loss = weighted_average(self.loss(control_distr, control), weights=loss_weights)
+        target_loss = weighted_average(self.loss(distr, target), weights=loss_weights)
+
+        return control_loss, target_loss
 
     def training_step(self, batch, batch_idx: int):
         """Execute training step"""
-        train_loss = self._compute_loss(batch)
+        train_control_loss, train_target_loss = self._compute_loss(batch)
+        train_loss = self.control_loss_weight * train_control_loss + train_target_loss
+        self.log(
+            "train_control_loss",
+            train_control_loss,
+            on_epoch=True,
+            on_step=False,
+            prog_bar=True,
+        )
+        self.log(
+            "train_target_loss",
+            train_target_loss,
+            on_epoch=True,
+            on_step=False,
+            prog_bar=True,
+        )
         self.log(
             "train_loss",
             train_loss,
@@ -101,9 +121,28 @@ class CausalDeepARLightningModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx: int):
         """Execute validation step"""
-        val_loss = self._compute_loss(batch)
+        val_control_loss, val_target_loss = self._compute_loss(batch)
+        val_loss = self.control_loss_weight * val_control_loss + val_target_loss
         self.log(
-            "val_loss", val_loss, on_epoch=True, on_step=False, prog_bar=True
+            "val_control_loss",
+            val_control_loss,
+            on_epoch=True,
+            on_step=False,
+            prog_bar=True,
+        )
+        self.log(
+            "val_target_loss",
+            val_target_loss,
+            on_epoch=True,
+            on_step=False,
+            prog_bar=True,
+        )
+        self.log(
+            "val_loss",
+            val_loss,
+            on_epoch=True,
+            on_step=False,
+            prog_bar=True,
         )
         return val_loss
 

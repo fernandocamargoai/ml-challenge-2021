@@ -87,6 +87,7 @@ class CausalDeepAREstimator(PyTorchLightningEstimator):
         distr_output: DistributionOutput = StudentTOutput(),
         control_output: DistributionOutput = StudentTOutput(),
         loss: DistributionLoss = NegativeLogLikelihood(),
+        control_loss_weight: float = 1.0,
         scaling: bool = True,
         min_control_value: Optional[float] = None,
         max_control_value: Optional[float] = None,
@@ -114,6 +115,7 @@ class CausalDeepAREstimator(PyTorchLightningEstimator):
         self.distr_output = distr_output
         self.control_output = control_output
         self.loss = loss
+        self.control_loss_weight = control_loss_weight
         self.num_layers = num_layers
         self.hidden_size = hidden_size
         self.dropout_rate = dropout_rate
@@ -301,7 +303,11 @@ class CausalDeepAREstimator(PyTorchLightningEstimator):
         )
 
         return CausalDeepARLightningModule(
-            model=model, loss=self.loss, lr=self.lr, weight_decay=self.weight_decay
+            model=model,
+            loss=self.loss,
+            lr=self.lr,
+            weight_decay=self.weight_decay,
+            control_loss_weight=self.control_loss_weight,
         )
 
     def create_predictor(

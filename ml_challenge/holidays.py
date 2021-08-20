@@ -1,3 +1,4 @@
+import re
 from datetime import date
 from typing import Dict, Set, Type
 
@@ -56,10 +57,14 @@ class MexicoWithCommercialDates(Mexico):
         self[thanksgiving_ + rd(days=4)] = "Cyber Monday"
 
 
+def _clean_holiday_name(holiday: str) -> str:
+    return re.sub("\W|^(?=\d)", "_", holiday)
+
+
 def _create_holidays_df(years: Set[int], holidays_class: Type[HolidayBase]):
     holidays_: Dict[date, str] = holidays_class(years=years)
     holidays_exploded = [
-        (ds, tuple(holiday.split(", ")))
+        (ds, tuple([_clean_holiday_name(holiday_) for holiday_ in holiday.split(", ")]))
         for ds, holiday in holidays_.items()
     ]
     holidays_df = pd.DataFrame(holidays_exploded, columns=["date", "holiday"])

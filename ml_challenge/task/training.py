@@ -24,7 +24,11 @@ from gluonts.time_feature import (
 )
 from gluonts.torch.model.deepar import DeepAREstimator
 from gluonts.torch.model.predictor import PyTorchPredictor
-from gluonts.torch.modules.distribution_output import DistributionOutput, GammaOutput, BetaOutput
+from gluonts.torch.modules.distribution_output import (
+    DistributionOutput,
+    GammaOutput,
+    BetaOutput,
+)
 from pts.modules import (
     NegativeBinomialOutput,
     PoissonOutput,
@@ -108,7 +112,13 @@ class BaseTraining(luigi.Task, metaclass=abc.ABCMeta):
         ]
     )
     real_variables: List[str] = luigi.ListParameter(
-        default=["currency_relative_price", "current_price", "minutes_active"]
+        default=[
+            "minutes_active",
+            "current_price",
+            "currency_relative_price",
+            "usd_relative_price",
+            "minimum_salary_relative_price",
+        ]
     )
     test_steps: int = luigi.IntParameter(default=30)
     validate_with_non_testing_skus: bool = luigi.BoolParameter(default=False)
@@ -179,14 +189,15 @@ class DeepARTraining(BaseTraining, metaclass=abc.ABCMeta):
         )
 
     @cached_property
-    def categorical_encoder(self) -> OrdinalEncoder:
-        with open(os.path.join(self.input_path, "categorical_encoder.pkl"), "rb") as f:
-            return pickle.load(f)
+    def labels(self) -> Dict[str, List[Any]]:
+        with open(os.path.join(self.input_path, "labels.json"), "r") as f:
+            return json.load(f)
 
     @cached_property
     def cardinality(self) -> List[int]:
         return [
-            len(categories) + 1 for categories in self.categorical_encoder.categories_
+            len(self.labels[variable]) + 1  # last index is for unknown
+            for variable in self.categorical_variables
         ]
 
     def create_dataset(self, paths) -> Dataset:
@@ -318,8 +329,8 @@ class DeepARTraining(BaseTraining, metaclass=abc.ABCMeta):
         pl.seed_everything(self.seed, workers=True)
 
         shutil.copy(
-            os.path.join(self.input_path, "categorical_encoder.pkl"),
-            os.path.join(self.output().path, "categorical_encoder.pkl"),
+            os.path.join(self.input_path, "labels.json"),
+            os.path.join(self.output().path, "labels.json"),
             follow_symlinks=True,
         )
 
@@ -384,6 +395,7 @@ class CausalDeepARTraining(DeepARTraining):
     control_distribution: str = luigi.ChoiceParameter(
         choices=_DISTRIBUTIONS.keys(), default="student_t"
     )
+    control_loss_weight: float = luigi.FloatParameter(default=1.0)
 
     def create_estimator(
         self,
