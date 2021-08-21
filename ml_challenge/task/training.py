@@ -406,6 +406,7 @@ class CausalDeepARTraining(DeepARTraining):
             control_output=_DISTRIBUTIONS[self.control_distribution](),
             min_control_value=0.0,
             max_control_value=1.0,
+            control_loss_weight=self.control_loss_weight,
             **self.get_estimator_params(wandb_logger, early_stopping),
         )
 
