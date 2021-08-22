@@ -32,6 +32,7 @@ def cdf_to_probas(cdf: List[float]) -> List[float]:
 
 def apply_tweedie(
     sample_days: np.ndarray,
+    std_multiplier: float = 1.0,
     phi: float = 2.0,
     power=1.3,
     min_std: float = 2.0,
@@ -39,7 +40,8 @@ def apply_tweedie(
 ) -> List[float]:
     mu = sample_days.mean()
     if phi < 0:
-        sigma = max(sample_days.std(), min_std)
+        sigma = sample_days.std() * std_multiplier
+        sigma = max(sigma, min_std)
         phi = (sigma ** 2) / mu ** power
     distro = tweedie.tweedie(p=power, mu=mu, phi=phi)
 
@@ -47,8 +49,10 @@ def apply_tweedie(
     return cdf_to_probas(cdf)
 
 
-def apply_normal(sample_days: np.ndarray, total_days: int = 30) -> List[float]:
-    distro = norm(sample_days.mean(), sample_days.std())
+def apply_normal(
+    sample_days: np.ndarray, std_multiplier: float = 1.0, total_days: int = 30
+) -> List[float]:
+    distro = norm(sample_days.mean(), sample_days.std() * std_multiplier)
 
     cdf = [distro.cdf(i) for i in range(1, total_days + 1)]
     return cdf_to_probas(cdf)
@@ -60,9 +64,11 @@ def apply_ecdf(sample_days: np.ndarray, total_days: int = 30) -> List[float]:
     return cdf_to_probas(cdf)
 
 
-def apply_beta(sample_days: np.ndarray, total_days: int = 30) -> List[float]:
+def apply_beta(
+    sample_days: np.ndarray, std_multiplier: float = 1.0, total_days: int = 30
+) -> List[float]:
     mu = sample_days.mean() / total_days
-    sigma = sample_days.std() / total_days
+    sigma = (sample_days.std() * std_multiplier) / total_days
 
     a = mu ** 2 * ((1 - mu) / sigma ** 2 - 1 / mu)
     b = a * (1 / mu - 1)

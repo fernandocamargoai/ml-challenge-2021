@@ -176,6 +176,8 @@ class GenerateSubmission(luigi.Task):
         choices=["tweedie", "normal", "ecdf", "beta"]
     )
 
+    std_multiplier: float = luigi.FloatParameter(default=1.0)
+
     tweedie_phi: float = luigi.FloatParameter(default=2.0)
     tweedie_power: float = luigi.FloatParameter(default=1.3)
 
@@ -198,6 +200,8 @@ class GenerateSubmission(luigi.Task):
         distribution = self.distribution
         if distribution == "tweedie":
             distribution += f"_phi={self.tweedie_phi}_power={self.tweedie_power}"
+        if self.std_multiplier:
+            distribution += f"_std_mult={self.std_multiplier}"
         return luigi.LocalTarget(
             os.path.join(
                 self.task_path,
@@ -210,19 +214,26 @@ class GenerateSubmission(luigi.Task):
 
         if self.distribution == "tweedie":
             apply_dist_fn = functools.partial(
-                apply_tweedie, phi=self.tweedie_phi, power=self.tweedie_power
+                apply_tweedie,
+                std_multiplier=self.std_multiplier,
+                phi=self.tweedie_phi,
+                power=self.tweedie_power,
             )
         elif self.distribution == "normal":
-            apply_dist_fn = apply_normal
+            apply_dist_fn = functools.partial(
+                apply_normal, std_multiplier=self.std_multiplier
+            )
         elif self.distribution == "ecdf":
             apply_dist_fn = apply_ecdf
         else:  # self.distribution == "beta":
-            apply_dist_fn = apply_beta
+            apply_dist_fn = functools.partial(
+                apply_beta, std_multiplier=self.std_multiplier
+            )
 
         with Pool(os.cpu_count()) as pool:
             all_probas = list(
                 tqdm(
-                    pool.imap(apply_dist_fn, out_of_stock_day_sample_preds,),
+                    pool.imap(apply_dist_fn, out_of_stock_day_sample_preds),
                     total=out_of_stock_day_sample_preds.shape[0],
                 )
             )
