@@ -26,6 +26,8 @@ from ml_challenge.submission import (
     apply_normal,
     apply_ecdf,
     apply_beta,
+    apply_negative_binomial,
+    apply_poisson,
 )
 from ml_challenge.task.training import (
     DeepARTraining,
@@ -173,7 +175,7 @@ class GenerateSubmission(luigi.Task):
     use_mean_of_last_minutes_active: bool = luigi.BoolParameter(default=False)
 
     distribution: str = luigi.ChoiceParameter(
-        choices=["tweedie", "normal", "ecdf", "beta"]
+        choices=["tweedie", "normal", "ecdf", "beta", "negative_binomial", "poisson"]
     )
 
     std_multiplier: float = luigi.FloatParameter(default=1.0)
@@ -225,10 +227,14 @@ class GenerateSubmission(luigi.Task):
             )
         elif self.distribution == "ecdf":
             apply_dist_fn = apply_ecdf
-        else:  # self.distribution == "beta":
+        elif self.distribution == "beta":
             apply_dist_fn = functools.partial(
                 apply_beta, std_multiplier=self.std_multiplier
             )
+        elif self.distribution == "negative_binomial":
+            apply_dist_fn = apply_negative_binomial
+        else:  # if self.distribution == "poisson":
+            apply_dist_fn = apply_poisson
 
         with Pool(os.cpu_count()) as pool:
             all_probas = list(
@@ -238,8 +244,10 @@ class GenerateSubmission(luigi.Task):
                 )
             )
 
+        # default_probas = ([0.0] * (len(all_probas[0]) - 1) + [1.0])
+        default_probas = [1.0 / len(all_probas[0])] * len(all_probas[0])
         all_probas = [
-            probas if sum(probas) > 0 else ([0.0] * (len(probas) - 1) + [1.0])
+            probas if sum(probas) > 0 else default_probas
             for probas in all_probas
         ]
 

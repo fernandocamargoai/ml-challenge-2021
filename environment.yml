@@ -10,6 +10,7 @@ dependencies:
 - plotly=5.1
 - scipy=1.7
 - numpy=1.21
+- statsmodels=0.12
 - scikit-learn=0.24
 - holidays=0.11
 - convertdate=2.3
