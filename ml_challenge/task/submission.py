@@ -26,8 +26,8 @@ from ml_challenge.submission import (
     apply_normal,
     apply_ecdf,
     apply_beta,
-    apply_negative_binomial,
-    apply_poisson,
+    apply_fitted_negative_binomial,
+    apply_poisson, apply_negative_binomial,
 )
 from ml_challenge.task.training import (
     DeepARTraining,
@@ -175,10 +175,12 @@ class GenerateSubmission(luigi.Task):
     use_mean_of_last_minutes_active: bool = luigi.BoolParameter(default=False)
 
     distribution: str = luigi.ChoiceParameter(
-        choices=["tweedie", "normal", "ecdf", "beta", "negative_binomial", "poisson"]
+        choices=["tweedie", "normal", "ecdf", "beta", "fitted_negative_binomial", "negative_binomial", "poisson"]
     )
 
+    fixed_std: float = luigi.FloatParameter(default=None)
     std_multiplier: float = luigi.FloatParameter(default=1.0)
+    min_std: float = luigi.FloatParameter(default=2.0)
 
     tweedie_phi: float = luigi.FloatParameter(default=2.0)
     tweedie_power: float = luigi.FloatParameter(default=1.3)
@@ -202,8 +204,12 @@ class GenerateSubmission(luigi.Task):
         distribution = self.distribution
         if distribution == "tweedie":
             distribution += f"_phi={self.tweedie_phi}_power={self.tweedie_power}"
-        if self.std_multiplier:
+        if self.fixed_std:
+            distribution += f"_std={self.fixed_std}"
+        if self.std_multiplier and self.std_multiplier != 1.0:
             distribution += f"_std_mult={self.std_multiplier}"
+        if self.min_std:
+            distribution += f"_min_std={self.min_std}"
         return luigi.LocalTarget(
             os.path.join(
                 self.task_path,
@@ -217,7 +223,9 @@ class GenerateSubmission(luigi.Task):
         if self.distribution == "tweedie":
             apply_dist_fn = functools.partial(
                 apply_tweedie,
+                fixed_std=self.fixed_std,
                 std_multiplier=self.std_multiplier,
+                min_std=self.min_std,
                 phi=self.tweedie_phi,
                 power=self.tweedie_power,
             )
@@ -231,8 +239,15 @@ class GenerateSubmission(luigi.Task):
             apply_dist_fn = functools.partial(
                 apply_beta, std_multiplier=self.std_multiplier
             )
+        elif self.distribution == "fitted_negative_binomial":
+            apply_dist_fn = apply_fitted_negative_binomial
         elif self.distribution == "negative_binomial":
-            apply_dist_fn = apply_negative_binomial
+            apply_dist_fn = functools.partial(
+                apply_negative_binomial,
+                fixed_std=self.fixed_std,
+                std_multiplier=self.std_multiplier,
+                min_std=self.min_std,
+            )
         else:  # if self.distribution == "poisson":
             apply_dist_fn = apply_poisson
 

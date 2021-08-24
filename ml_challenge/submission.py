@@ -35,22 +35,26 @@ def old_cdf_to_probas(cdf: List[float]) -> List[float]:
 def cdf_fn_to_probas(
     cdf_fn: Callable[[float], float], total_days: int = 30
 ) -> List[float]:
-    prob_array = np.ediff1d([cdf_fn(i) for i in range(0, total_days+1)])
+    prob_array = np.ediff1d([cdf_fn(i) for i in range(0, total_days + 1)])
     return list(prob_array / np.sum(prob_array))
 
 
 def apply_tweedie(
     sample_days: np.ndarray,
+    fixed_std: float = None,
     std_multiplier: float = 1.0,
-    phi: float = 2.0,
-    power=1.3,
     min_std: float = 2.0,
+    phi: float = 2.0,
+    power: float = 1.3,
     total_days: int = 30,
 ) -> List[float]:
     mu = sample_days.mean()
     if phi < 0:
-        sigma = sample_days.std() * std_multiplier
-        sigma = max(sigma, min_std)
+        if fixed_std:
+            sigma = fixed_std
+        else:
+            sigma = sample_days.std() * std_multiplier
+            sigma = max(sigma, min_std)
         phi = (sigma ** 2) / mu ** power
     distro = tweedie.tweedie(p=power, mu=mu, phi=phi)
     return cdf_fn_to_probas(distro.cdf, total_days=total_days)
@@ -140,10 +144,33 @@ def _fit_nbinom(X: np.ndarray, initial_params=None) -> Tuple[float, float]:
     return (params[0], params[1])
 
 
-def apply_negative_binomial(
+def apply_fitted_negative_binomial(
     sample_days: np.ndarray, total_days: int = 30
 ) -> List[float]:
     distro = nbinom(*_fit_nbinom(sample_days))
+    return cdf_fn_to_probas(distro.cdf, total_days=total_days)
+
+
+def apply_negative_binomial(
+    sample_days: np.ndarray,
+    fixed_std: float = None,
+    std_multiplier: float = 1.0,
+    min_std: float = 2.0,
+    total_days: int = 30,
+) -> List[float]:
+    mu = sample_days.mean()
+    if fixed_std:
+        sigma = fixed_std
+    else:
+        sigma = sample_days.std() * std_multiplier
+        sigma = max(sigma, min_std)
+
+    var = sigma ** 2
+
+    r = (mu ** 2) / (var - mu) if var > mu else total_days
+    p = r / ((r + mu) if r + mu != 0 else 1)
+
+    distro = nbinom(r, p)
     return cdf_fn_to_probas(distro.cdf, total_days=total_days)
 
 
