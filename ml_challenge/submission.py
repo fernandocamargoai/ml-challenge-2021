@@ -177,3 +177,9 @@ def apply_negative_binomial(
 def apply_poisson(sample_days: np.ndarray, total_days: int = 30) -> List[float]:
     distro = poisson(sample_days.mean())
     return cdf_fn_to_probas(distro.cdf, total_days=total_days)
+
+
+def apply_fitted_gamma(sample_days: np.ndarray, total_days: int = 30) -> List[float]:
+    shape, loc, scale = gamma.fit(sample_days)
+    distro = gamma(shape, loc, scale)
+    return cdf_fn_to_probas(distro.cdf, total_days=total_days)

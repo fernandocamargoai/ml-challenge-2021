@@ -27,7 +27,9 @@ from ml_challenge.submission import (
     apply_ecdf,
     apply_beta,
     apply_fitted_negative_binomial,
-    apply_poisson, apply_negative_binomial,
+    apply_poisson,
+    apply_negative_binomial,
+    apply_fitted_gamma,
 )
 from ml_challenge.task.training import (
     DeepARTraining,
@@ -145,7 +147,7 @@ class GenerateOutOfStockDaySamplePredictions(luigi.Task):
 
         predictor = self.training.get_trained_predictor(torch.device("cuda"))
         predictor.batch_size = 512
-        with Pool(os.cpu_count()) as pool:
+        with Pool(max(os.cpu_count(), 8)) as pool:
             with LookaheadGenerator(
                 predictor.predict(test_dataset, num_samples=self.num_samples)
             ) as forecasts:
@@ -175,7 +177,16 @@ class GenerateSubmission(luigi.Task):
     use_mean_of_last_minutes_active: bool = luigi.BoolParameter(default=False)
 
     distribution: str = luigi.ChoiceParameter(
-        choices=["tweedie", "normal", "ecdf", "beta", "fitted_negative_binomial", "negative_binomial", "poisson"]
+        choices=[
+            "tweedie",
+            "normal",
+            "ecdf",
+            "beta",
+            "fitted_negative_binomial",
+            "negative_binomial",
+            "fitted_gamma",
+            "poisson",
+        ]
     )
 
     fixed_std: float = luigi.FloatParameter(default=None)
@@ -248,10 +259,12 @@ class GenerateSubmission(luigi.Task):
                 std_multiplier=self.std_multiplier,
                 min_std=self.min_std,
             )
+        elif self.distribution == "fitted_gamma":
+            apply_dist_fn = apply_fitted_gamma
         else:  # if self.distribution == "poisson":
             apply_dist_fn = apply_poisson
 
-        with Pool(os.cpu_count()) as pool:
+        with Pool(max(os.cpu_count(), 8)) as pool:
             all_probas = list(
                 tqdm(
                     pool.imap(apply_dist_fn, out_of_stock_day_sample_preds),
@@ -262,8 +275,7 @@ class GenerateSubmission(luigi.Task):
         # default_probas = ([0.0] * (len(all_probas[0]) - 1) + [1.0])
         default_probas = [1.0 / len(all_probas[0])] * len(all_probas[0])
         all_probas = [
-            probas if sum(probas) > 0 else default_probas
-            for probas in all_probas
+            probas if sum(probas) > 0 else default_probas for probas in all_probas
         ]
 
         with gzip.open(self.output().path, "wb") as f:
