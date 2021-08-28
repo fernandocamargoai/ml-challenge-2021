@@ -4,13 +4,14 @@ import json
 import os
 from functools import cached_property
 from multiprocessing import Pool
-from typing import Union
+from typing import Union, Tuple
 
 import luigi
 import numpy as np
 import torch
 import pytorch_lightning as pl
 from gluonts.model.forecast import SampleForecast
+from sklearn.preprocessing import MinMaxScaler
 from tqdm import tqdm
 
 from ml_challenge.dataset import (
@@ -190,8 +191,7 @@ class GenerateSubmission(luigi.Task):
     )
 
     fixed_std: float = luigi.FloatParameter(default=None)
-    std_multiplier: float = luigi.FloatParameter(default=1.0)
-    min_std: float = luigi.FloatParameter(default=2.0)
+    min_max_std: Tuple[float, float] = luigi.TupleParameter(default=None)
 
     tweedie_phi: float = luigi.FloatParameter(default=2.0)
     tweedie_power: float = luigi.FloatParameter(default=1.3)
@@ -217,10 +217,8 @@ class GenerateSubmission(luigi.Task):
             distribution += f"_phi={self.tweedie_phi}_power={self.tweedie_power}"
         if self.fixed_std:
             distribution += f"_std={self.fixed_std}"
-        if self.std_multiplier and self.std_multiplier != 1.0:
-            distribution += f"_std_mult={self.std_multiplier}"
-        if self.min_std:
-            distribution += f"_min_std={self.min_std}"
+        if self.min_max_std:
+            distribution += f"_std={self.min_max_std}"
         return luigi.LocalTarget(
             os.path.join(
                 self.task_path,
@@ -231,24 +229,31 @@ class GenerateSubmission(luigi.Task):
     def run(self):
         out_of_stock_day_sample_preds = np.load(self.input().path)
 
+        std_scaler = (
+            MinMaxScaler(self.min_max_std).fit(
+                np.std(out_of_stock_day_sample_preds, axis=1).reshape(-1, 1)
+            )
+            if self.min_max_std
+            else None
+        )
+
         if self.distribution == "tweedie":
             apply_dist_fn = functools.partial(
                 apply_tweedie,
-                fixed_std=self.fixed_std,
-                std_multiplier=self.std_multiplier,
-                min_std=self.min_std,
                 phi=self.tweedie_phi,
                 power=self.tweedie_power,
+                fixed_std=self.fixed_std,
+                std_scaler=std_scaler,
             )
         elif self.distribution == "normal":
             apply_dist_fn = functools.partial(
-                apply_normal, std_multiplier=self.std_multiplier
+                apply_normal, fixed_std=self.fixed_std, std_scaler=std_scaler,
             )
         elif self.distribution == "ecdf":
             apply_dist_fn = apply_ecdf
         elif self.distribution == "beta":
             apply_dist_fn = functools.partial(
-                apply_beta, std_multiplier=self.std_multiplier
+                apply_beta, fixed_std=self.fixed_std, std_scaler=std_scaler,
             )
         elif self.distribution == "fitted_negative_binomial":
             apply_dist_fn = apply_fitted_negative_binomial
@@ -256,8 +261,7 @@ class GenerateSubmission(luigi.Task):
             apply_dist_fn = functools.partial(
                 apply_negative_binomial,
                 fixed_std=self.fixed_std,
-                std_multiplier=self.std_multiplier,
-                min_std=self.min_std,
+                std_scaler=std_scaler,
             )
         elif self.distribution == "fitted_gamma":
             apply_dist_fn = apply_fitted_gamma

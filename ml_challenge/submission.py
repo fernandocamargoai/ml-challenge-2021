@@ -1,4 +1,4 @@
-from typing import List, Tuple, Callable
+from typing import List, Tuple, Callable, Optional
 
 import numpy as np
 import tweedie
@@ -6,6 +6,7 @@ from gluonts.model.forecast import SampleForecast
 from scipy.optimize import fmin_l_bfgs_b
 from scipy.special import gammaln, factorial, psi
 from scipy.stats import norm, beta, gamma, nbinom, poisson
+from sklearn.preprocessing import MinMaxScaler
 from statsmodels.distributions import ECDF
 
 
@@ -39,31 +40,39 @@ def cdf_fn_to_probas(
     return list(prob_array / np.sum(prob_array))
 
 
+def _calculate_std(sample_days: np.ndarray, fixed_std: Optional[float], std_scaler: Optional[MinMaxScaler]):
+    if fixed_std:
+        std = fixed_std
+    elif std_scaler:
+        std = std_scaler.transform(sample_days.std().reshape(-1, 1))[0][0]
+    else:
+        std = sample_days.std()
+    return std
+
+
 def apply_tweedie(
     sample_days: np.ndarray,
-    fixed_std: float = None,
-    std_multiplier: float = 1.0,
-    min_std: float = 2.0,
     phi: float = 2.0,
     power: float = 1.3,
+    fixed_std: float = None,
+    std_scaler: MinMaxScaler = None,
     total_days: int = 30,
 ) -> List[float]:
     mu = sample_days.mean()
     if phi < 0:
-        if fixed_std:
-            sigma = fixed_std
-        else:
-            sigma = sample_days.std() * std_multiplier
-            sigma = max(sigma, min_std)
+        sigma = _calculate_std(sample_days, fixed_std, std_scaler)
         phi = (sigma ** 2) / mu ** power
     distro = tweedie.tweedie(p=power, mu=mu, phi=phi)
     return cdf_fn_to_probas(distro.cdf, total_days=total_days)
 
 
 def apply_normal(
-    sample_days: np.ndarray, std_multiplier: float = 1.0, total_days: int = 30
+    sample_days: np.ndarray,
+    fixed_std: float = None,
+    std_scaler: MinMaxScaler = None,
+    total_days: int = 30,
 ) -> List[float]:
-    distro = norm(sample_days.mean(), sample_days.std() * std_multiplier)
+    distro = norm(sample_days.mean(), _calculate_std(sample_days, fixed_std, std_scaler))
 
     return cdf_fn_to_probas(distro.cdf, total_days=total_days)
 
@@ -74,10 +83,11 @@ def apply_ecdf(sample_days: np.ndarray, total_days: int = 30) -> List[float]:
 
 
 def apply_beta(
-    sample_days: np.ndarray, std_multiplier: float = 1.0, total_days: int = 30
+    sample_days: np.ndarray, fixed_std: float = None,
+    std_scaler: MinMaxScaler = None, total_days: int = 30
 ) -> List[float]:
     mu = sample_days.mean() / total_days
-    sigma = (sample_days.std() * std_multiplier) / total_days
+    sigma = _calculate_std(sample_days, fixed_std, std_scaler) / total_days
 
     a = mu ** 2 * ((1 - mu) / sigma ** 2 - 1 / mu)
     b = a * (1 / mu - 1)
@@ -154,16 +164,11 @@ def apply_fitted_negative_binomial(
 def apply_negative_binomial(
     sample_days: np.ndarray,
     fixed_std: float = None,
-    std_multiplier: float = 1.0,
-    min_std: float = 2.0,
+    std_scaler: MinMaxScaler = None,
     total_days: int = 30,
 ) -> List[float]:
     mu = sample_days.mean()
-    if fixed_std:
-        sigma = fixed_std
-    else:
-        sigma = sample_days.std() * std_multiplier
-        sigma = max(sigma, min_std)
+    sigma = _calculate_std(sample_days, fixed_std, std_scaler)
 
     var = sigma ** 2
 
