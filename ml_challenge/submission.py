@@ -2,7 +2,7 @@ from typing import List, Tuple, Callable, Optional
 
 import numpy as np
 import tweedie
-from gluonts.model.forecast import SampleForecast
+from gluonts.model.forecast import SampleForecast, QuantileForecast
 from scipy.optimize import fmin_l_bfgs_b
 from scipy.special import gammaln, factorial, psi
 from scipy.stats import norm, beta, gamma, nbinom, poisson
@@ -26,6 +26,16 @@ def calculate_out_of_stock_days_from_samples(
     )
     sample_days[sample_days == total_days] -= 1
     return sample_days + 1
+
+
+def calculate_out_out_stock_days_from_quantiles(
+    forecast: QuantileForecast, stock: int, total_days: int = 30
+) -> np.ndarray:
+    quantile_days = np.apply_along_axis(
+        np.searchsorted, 1, np.cumsum(forecast.forecast_array, axis=1) >= stock, True
+    )
+    quantile_days[quantile_days == total_days] -= 1
+    return quantile_days + 1
 
 
 def old_cdf_to_probas(cdf: List[float]) -> List[float]:

@@ -30,12 +30,12 @@ from ml_challenge.submission import (
     apply_fitted_negative_binomial,
     apply_poisson,
     apply_negative_binomial,
-    apply_fitted_gamma,
+    apply_fitted_gamma, calculate_out_out_stock_days_from_quantiles,
 )
 from ml_challenge.task.training import (
     DeepARTraining,
     DeepARForMinutesActiveTraining,
-    CausalDeepARTraining,
+    CausalDeepARTraining, TemporalFusionTransformerTraining,
 )
 
 
@@ -66,12 +66,13 @@ class GenerateOutOfStockDaySamplePredictions(luigi.Task):
     seed: int = luigi.IntParameter(default=42)
 
     @cached_property
-    def training(self) -> DeepARTraining:
+    def training(self) -> Union[DeepARTraining, CausalDeepARTraining, TemporalFusionTransformerTraining]:
         with open(os.path.join(self.task_path, "params.json"), "r") as params_file:
             params = json.load(params_file)
         training_class = {
             DeepARTraining.__name__: DeepARTraining,
             CausalDeepARTraining.__name__: CausalDeepARTraining,
+            TemporalFusionTransformerTraining.__name__: TemporalFusionTransformerTraining,
         }[os.path.split(os.path.split(self.task_path)[0])[1]]
         return training_class(**params)
 
@@ -148,6 +149,12 @@ class GenerateOutOfStockDaySamplePredictions(luigi.Task):
 
         predictor = self.training.get_trained_predictor(torch.device("cuda"))
         predictor.batch_size = 512
+
+        if isinstance(self.training, DeepARTraining):
+            forecast_transform_fn = calculate_out_of_stock_days_from_samples
+        else:
+            forecast_transform_fn = calculate_out_out_stock_days_from_quantiles
+
         with Pool(max(os.cpu_count(), 8)) as pool:
             with LookaheadGenerator(
                 predictor.predict(test_dataset, num_samples=self.num_samples)
@@ -157,7 +164,7 @@ class GenerateOutOfStockDaySamplePredictions(luigi.Task):
                         pool.imap(
                             functools.partial(
                                 pool_forecast_transform_fn,
-                                forecast_transform_fn=calculate_out_of_stock_days_from_samples,
+                                forecast_transform_fn=forecast_transform_fn,
                             ),
                             zip(forecasts, self.training.test_df["target_stock"]),
                         ),
@@ -227,11 +234,14 @@ class GenerateSubmission(luigi.Task):
         )
 
     def run(self):
-        out_of_stock_day_sample_preds = np.load(self.input().path)
+        out_of_stock_day_preds = np.load(self.input().path)
+
+        if "TemporalFusionTransformerTraining" in self.task_path:
+            out_of_stock_day_preds = out_of_stock_day_preds[:, 0:1]
 
         std_scaler = (
             MinMaxScaler(self.min_max_std).fit(
-                np.std(out_of_stock_day_sample_preds, axis=1).reshape(-1, 1)
+                np.std(out_of_stock_day_preds, axis=1).reshape(-1, 1)
             )
             if self.min_max_std
             else None
@@ -271,8 +281,8 @@ class GenerateSubmission(luigi.Task):
         with Pool(max(os.cpu_count(), 8)) as pool:
             all_probas = list(
                 tqdm(
-                    pool.imap(apply_dist_fn, out_of_stock_day_sample_preds),
-                    total=out_of_stock_day_sample_preds.shape[0],
+                    pool.imap(apply_dist_fn, out_of_stock_day_preds),
+                    total=out_of_stock_day_preds.shape[0],
                 )
             )
 
