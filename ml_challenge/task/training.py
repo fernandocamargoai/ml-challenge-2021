@@ -14,6 +14,7 @@ import torch
 import pytorch_lightning as pl
 import wandb
 from gluonts.dataset.common import Dataset
+from gluonts.dataset.field_names import FieldName
 from gluonts.time_feature import (
     get_lags_for_frequency,
     TimeFeature,
@@ -23,6 +24,7 @@ from gluonts.time_feature import (
     WeekOfYear,
 )
 from gluonts.torch.model.deepar import DeepAREstimator
+from gluonts.torch.model.estimator import PyTorchLightningEstimator
 from gluonts.torch.model.predictor import PyTorchPredictor
 from gluonts.torch.modules.distribution_output import (
     DistributionOutput,
@@ -47,10 +49,12 @@ from ml_challenge.dataset import (
     ChangeTargetToMinutesActiveTransformation,
     MoveMinutesActiveToControlTransformation,
     TruncateControlTransformation,
+    SplitFeaturesIntoFields,
 )
 from ml_challenge.gluonts.custom import CustomDeepAREstimator
 from ml_challenge.gluonts.distribution import BimodalBetaOutput, BiStudentTMixtureOutput
 from ml_challenge.gluonts.model.causal_deepar import CausalDeepAREstimator
+from ml_challenge.gluonts.model.tft.estimator import TemporalFusionTransformerEstimator
 from ml_challenge.gluonts.time_feature import (
     DayOfWeekSin,
     DayOfWeekCos,
@@ -146,6 +150,17 @@ class BaseTraining(luigi.Task, metaclass=abc.ABCMeta):
     seed: int = luigi.IntParameter(default=42)
     use_gpu: bool = luigi.BoolParameter(default=False)
 
+    cache_dataset: bool = luigi.BoolParameter(default=False)
+    preload_dataset: bool = luigi.BoolParameter(default=False)
+    check_data: bool = luigi.BoolParameter(default=False)
+
+    def requires(self):
+        return PrepareGluonTimeSeriesDatasets(
+            categorical_variables=self.categorical_variables,
+            real_variables=self.real_variables,
+            test_steps=self.test_steps,
+        )
+
     def output(self):
         return luigi.LocalTarget(
             os.path.join("output", self.__class__.__name__, self.task_id)
@@ -165,40 +180,10 @@ class BaseTraining(luigi.Task, metaclass=abc.ABCMeta):
     def test_df(self) -> pd.DataFrame:
         return pd.read_csv(os.path.join(get_assets_path(), "test_data.csv"))
 
-
-class DeepARTraining(BaseTraining, metaclass=abc.ABCMeta):
-    distribution: str = luigi.ChoiceParameter(
-        choices=_DISTRIBUTIONS.keys(), default="negative_binomial"
-    )
-
-    num_layers: int = luigi.IntParameter(default=2)
-    hidden_size: int = luigi.IntParameter(default=40)
-    dropout_rate: float = luigi.FloatParameter(default=0.1)
-    embedding_dimension: List[int] = luigi.ListParameter(default=None)
-    num_parallel_samples: int = luigi.IntParameter(default=100)
-
-    cache_dataset: bool = luigi.BoolParameter(default=False)
-    preload_dataset: bool = luigi.BoolParameter(default=False)
-    check_data: bool = luigi.BoolParameter(default=False)
-
-    def requires(self):
-        return PrepareGluonTimeSeriesDatasets(
-            categorical_variables=self.categorical_variables,
-            real_variables=self.real_variables,
-            test_steps=self.test_steps,
-        )
-
     @cached_property
     def labels(self) -> Dict[str, List[Any]]:
         with open(os.path.join(self.input_path, "labels.json"), "r") as f:
             return json.load(f)
-
-    @cached_property
-    def cardinality(self) -> List[int]:
-        return [
-            len(self.labels[variable]) + 1  # last index is for unknown
-            for variable in self.categorical_variables
-        ]
 
     def create_dataset(self, paths) -> Dataset:
         return JsonGzDataset(paths, freq="D")
@@ -262,12 +247,91 @@ class DeepARTraining(BaseTraining, metaclass=abc.ABCMeta):
         return predictor
 
     @property
-    def wandb_project(self) -> str:
-        return "ml-challenge"
-
-    @property
     def num_feat_dynamic_real(self) -> int:
         return len(self.real_variables) + len(self.holidays_df.columns)
+
+    @property
+    @abc.abstractmethod
+    def wandb_project(self) -> str:
+        pass
+
+    @abc.abstractmethod
+    def create_estimator(
+        self,
+        wandb_logger: WandbWithBestMetricLogger,
+        early_stopping: pl.callbacks.EarlyStopping,
+    ) -> PyTorchLightningEstimator:
+        pass
+
+    def run(self):
+        os.makedirs(self.output().path, exist_ok=True)
+
+        save_params(self.output().path, self.param_kwargs)
+
+        pl.seed_everything(self.seed, workers=True)
+
+        shutil.copy(
+            os.path.join(self.input_path, "labels.json"),
+            os.path.join(self.output().path, "labels.json"),
+            follow_symlinks=True,
+        )
+
+        monitor = "train_loss" if self.val_dataset is None else "val_loss"
+
+        wandb_logger = WandbWithBestMetricLogger(
+            name=self.task_id,
+            save_dir=self.output().path,
+            project=self.wandb_project,
+            log_model=False,
+            monitor=monitor,
+            mode="min",
+        )
+        wandb_logger.log_hyperparams(self.param_kwargs)
+
+        early_stopping = pl.callbacks.EarlyStopping(
+            monitor=monitor,
+            mode="min",
+            patience=self.early_stopping_patience,
+            verbose=True,
+        )
+        estimator = self.create_estimator(wandb_logger, early_stopping)
+
+        train_output = estimator.train_model(
+            self.train_dataset,
+            validation_data=self.val_dataset,
+            num_workers=self.num_workers,
+            cache_data=self.cache_dataset,
+        )
+
+        self._serialize(train_output.predictor)
+        predictor_artifact = wandb.Artifact(
+            name=f"artifact-{wandb_logger.experiment.id}", type="model"
+        )
+        predictor_artifact.add_dir(os.path.join(self.output().path, "predictor"))
+        wandb_logger.experiment.log_artifact(predictor_artifact)
+
+
+class DeepARTraining(BaseTraining, metaclass=abc.ABCMeta):
+    distribution: str = luigi.ChoiceParameter(
+        choices=_DISTRIBUTIONS.keys(), default="negative_binomial"
+    )
+
+    num_layers: int = luigi.IntParameter(default=2)
+    hidden_size: int = luigi.IntParameter(default=40)
+    dropout_rate: float = luigi.FloatParameter(default=0.1)
+    embedding_dimension: List[int] = luigi.ListParameter(default=None)
+    num_parallel_samples: int = luigi.IntParameter(default=100)
+
+    @cached_property
+    def cardinality(self) -> List[int]:
+        return [
+            len(self.labels[variable]) + 1  # last index is for unknown
+            for variable in self.categorical_variables
+        ]
+
+    @property
+    def wandb_project(self) -> str:
+        return "ml-challenge"
 
     def get_estimator_params(
         self,
@@ -320,53 +384,6 @@ class DeepARTraining(BaseTraining, metaclass=abc.ABCMeta):
         return CustomDeepAREstimator(
             **self.get_estimator_params(wandb_logger, early_stopping)
         )
-
-    def run(self):
-        os.makedirs(self.output().path, exist_ok=True)
-
-        save_params(self.output().path, self.param_kwargs)
-
-        pl.seed_everything(self.seed, workers=True)
-
-        shutil.copy(
-            os.path.join(self.input_path, "labels.json"),
-            os.path.join(self.output().path, "labels.json"),
-            follow_symlinks=True,
-        )
-
-        monitor = "train_loss" if self.val_dataset is None else "val_loss"
-
-        wandb_logger = WandbWithBestMetricLogger(
-            name=self.task_id,
-            save_dir=self.output().path,
-            project=self.wandb_project,
-            log_model=False,
-            monitor=monitor,
-            mode="min",
-        )
-        wandb_logger.log_hyperparams(self.param_kwargs)
-
-        early_stopping = pl.callbacks.EarlyStopping(
-            monitor=monitor,
-            mode="min",
-            patience=self.early_stopping_patience,
-            verbose=True,
-        )
-        estimator = self.create_estimator(wandb_logger, early_stopping)
-
-        train_output = estimator.train_model(
-            self.train_dataset,
-            validation_data=self.val_dataset,
-            num_workers=self.num_workers,
-            cache_data=self.cache_dataset,
-        )
-
-        self._serialize(train_output.predictor)
-        predictor_artifact = wandb.Artifact(
-            name=f"artifact-{wandb_logger.experiment.id}", type="model"
-        )
-        predictor_artifact.add_dir(os.path.join(self.output().path, "predictor"))
-        wandb_logger.experiment.log_artifact(predictor_artifact)
 
 
 class DeepARForMinutesActiveTraining(DeepARTraining):
@@ -431,4 +448,96 @@ class CausalDeepARTraining(DeepARTraining):
         return SameSizeTransformedDataset(
             super().test_dataset,
             transformation=TruncateControlTransformation(self.test_steps),
+        )
+
+
+class TemporalFusionTransformerTraining(BaseTraining):
+    dropout_rate: float = luigi.FloatParameter(default=0.1)
+    embed_dim: int = luigi.IntParameter(default=32)
+    num_heads: int = luigi.IntParameter(default=4)
+    num_outputs: int = luigi.IntParameter(default=3)
+    variable_dim: Optional[int] = luigi.IntParameter(default=None)
+
+    @property
+    def wandb_project(self) -> str:
+        return "ml-challenge-tft"
+
+    @property
+    def all_real_variables(self) -> List[str]:
+        return list(self.real_variables) + list(self.holidays_df.columns)
+
+    @cached_property
+    def train_dataset(self) -> Dataset:
+        return SameSizeTransformedDataset(
+            super().train_dataset,
+            transformation=SplitFeaturesIntoFields(
+                self.categorical_variables,
+                self.all_real_variables,
+            ),
+        )
+
+    @cached_property
+    def val_dataset(self) -> Dataset:
+        return SameSizeTransformedDataset(
+            super().val_dataset,
+            transformation=SplitFeaturesIntoFields(
+                self.categorical_variables,
+                self.all_real_variables,
+            ),
+        )
+
+    @cached_property
+    def test_dataset(self) -> Dataset:
+        return SameSizeTransformedDataset(
+            super().test_dataset,
+            transformation=SplitFeaturesIntoFields(
+                self.categorical_variables,
+                self.all_real_variables,
+            ),
+        )
+
+    def create_estimator(
+        self,
+        wandb_logger: WandbWithBestMetricLogger,
+        early_stopping: pl.callbacks.EarlyStopping,
+    ) -> TemporalFusionTransformerEstimator:
+        return TemporalFusionTransformerEstimator(
+            freq="D",
+            prediction_length=self.test_steps,
+            context_length=self.context_length,
+            dropout_rate=self.dropout_rate,
+            embed_dim=self.embed_dim,
+            num_heads=self.num_heads,
+            num_outputs=self.num_outputs,
+            variable_dim=self.variable_dim,
+            time_features=[
+                _TIME_FEATURES[time_feature]() for time_feature in self.time_features
+            ],
+            static_cardinalities={
+                variable: len(self.labels[variable]) + 1  # last index is for unknown
+                for variable in self.categorical_variables
+            },
+            dynamic_feature_dims={
+                variable: 1
+                for variable in self.all_real_variables
+            },
+            past_dynamic_features=list(self.real_variables),
+            batch_size=self.batch_size,
+            lr=self.lr,
+            weight_decay=self.weight_decay,
+            num_batches_per_epoch=self.num_batches_per_epoch
+            if self.num_batches_per_epoch > 0
+            else len(self.train_dataset) // self.batch_size,
+            trainer_kwargs=dict(
+                max_epochs=self.max_epochs,
+                accumulate_grad_batches=self.accumulate_grad_batches,
+                gradient_clip_val=self.gradient_clip_val,
+                logger=wandb_logger,
+                callbacks=[early_stopping],
+                default_root_dir=self.output().path,
+                gpus=torch.cuda.device_count() if self.use_gpu else 0,
+                precision=self.precision,
+                num_sanity_val_steps=0,
+                deterministic=True,
+            ),
         )

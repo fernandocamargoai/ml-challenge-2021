@@ -261,3 +261,26 @@ class UseMeanOfLastMinutesActiveTransformation(MapTransformation):
             -(self._test_steps * 2) : -self._test_steps
         ].mean()
         return data
+
+
+class SplitFeaturesIntoFields(MapTransformation):
+    def __init__(
+        self, categorical_variables: List[str], real_variables: List[str],
+    ) -> None:
+        super().__init__()
+
+        self._categorical_variables = categorical_variables
+        self._real_variables = real_variables
+
+    def map_transform(self, data: DataEntry, is_train: bool) -> DataEntry:
+        data = data.copy()
+
+        for i, cat_var in enumerate(self._categorical_variables):
+            data[cat_var] = data[FieldName.FEAT_STATIC_CAT][i].reshape(1)
+        del data[FieldName.FEAT_STATIC_CAT]
+
+        for i, real_var in enumerate(self._real_variables):
+            data[real_var] = data[FieldName.FEAT_DYNAMIC_REAL][i].reshape(1, -1)
+        del data[FieldName.FEAT_DYNAMIC_REAL]
+
+        return data
