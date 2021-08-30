@@ -222,7 +222,7 @@ class GenerateSubmission(luigi.Task):
     def output(self):
         suffix = get_suffix(self)
         if "TemporalFusionTransformerTraining" in self.task_path:
-            suffix += f"tft_quantile_indices={self.tft_quantile_indices}"
+            suffix += f"_tft_quantile_indices={self.tft_quantile_indices}"
         distribution = self.distribution
         if distribution == "tweedie":
             distribution += f"_phi={self.tweedie_phi}_power={self.tweedie_power}"
