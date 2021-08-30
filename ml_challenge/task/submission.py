@@ -178,6 +178,8 @@ class GenerateOutOfStockDaySamplePredictions(luigi.Task):
 class GenerateSubmission(luigi.Task):
     task_path: str = luigi.Parameter()
 
+    tft_quantile_index: int = luigi.IntParameter(default=0)
+
     minutes_active_task_path: str = luigi.Parameter(default=None)
     minutes_active_forecast_method: str = luigi.ChoiceParameter(
         choices=["mean", "max"], default="mean"
@@ -219,6 +221,8 @@ class GenerateSubmission(luigi.Task):
 
     def output(self):
         suffix = get_suffix(self)
+        if "TemporalFusionTransformerTraining" in self.task_path:
+            suffix += f"tft_quantile_index={self.tft_quantile_index}"
         distribution = self.distribution
         if distribution == "tweedie":
             distribution += f"_phi={self.tweedie_phi}_power={self.tweedie_power}"
@@ -237,7 +241,8 @@ class GenerateSubmission(luigi.Task):
         out_of_stock_day_preds = np.load(self.input().path)
 
         if "TemporalFusionTransformerTraining" in self.task_path:
-            out_of_stock_day_preds = out_of_stock_day_preds[:, 0:1]
+            if self.tft_quantile_index >= 0:
+                out_of_stock_day_preds = out_of_stock_day_preds[:, self.tft_quantile_index:self.tft_quantile_index+1]
 
         std_scaler = (
             MinMaxScaler(self.min_max_std).fit(
