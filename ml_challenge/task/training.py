@@ -128,7 +128,6 @@ class BaseTraining(luigi.Task, metaclass=abc.ABCMeta):
     validate_with_non_testing_skus: bool = luigi.BoolParameter(default=False)
 
     context_length: int = luigi.IntParameter(default=30)
-    lags_seq_ub: int = luigi.IntParameter(default=60)
     time_features: List[str] = luigi.ListParameter(
         default=["day_of_week", "day_of_month", "day_of_year"]
     )
@@ -316,6 +315,8 @@ class DeepARTraining(BaseTraining, metaclass=abc.ABCMeta):
         choices=_DISTRIBUTIONS.keys(), default="negative_binomial"
     )
 
+    lags_seq_ub: int = luigi.IntParameter(default=60)
+
     num_layers: int = luigi.IntParameter(default=2)
     hidden_size: int = luigi.IntParameter(default=40)
     dropout_rate: float = luigi.FloatParameter(default=0.1)
@@ -455,7 +456,7 @@ class TemporalFusionTransformerTraining(BaseTraining):
     dropout_rate: float = luigi.FloatParameter(default=0.1)
     embed_dim: int = luigi.IntParameter(default=32)
     num_heads: int = luigi.IntParameter(default=4)
-    num_outputs: int = luigi.IntParameter(default=3)
+    num_outputs: int = luigi.IntParameter(default=9)
     variable_dim: Optional[int] = luigi.IntParameter(default=None)
 
     @property
